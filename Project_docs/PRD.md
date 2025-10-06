@@ -1,27 +1,48 @@
-# Product Requirements Document: Sales Data Analytics Platform
+# Product Requirements Document: TaskifAI Multi-Tenant SaaS Platform
 
-**Version:** 1.0
+**Version:** 2.0
 
-**Status:** Draft
+**Status:** Active Development
 
 ## 1. Introduction
 
 ### 1.1. Problem Statement
 
-Business stakeholders lack a unified and timely view of product sales performance across a diverse landscape of third-party resellers. Each reseller provides data in a different, inconsistent format, requiring significant manual effort to clean, standardize, and aggregate. This process is slow, error-prone, and prevents effective analysis and decision-making.
+Businesses in retail and distribution lack a unified and timely view of product sales performance across a diverse landscape of third-party resellers. Each reseller provides data in a different, inconsistent format, requiring significant manual effort to clean, standardize, and aggregate. This process is slow, error-prone, and prevents effective analysis and decision-making.
+
+**Multi-Tenant Challenge:** Each business needs complete data isolation from competitors while benefiting from a shared, continuously-improving SaaS platform.
 
 ### 1.2. Vision & Goal
 
-To create a central, automated platform that ingests, cleans, and standardizes sales data from all resellers. The system will act as the single source of truth for sales intelligence, providing a clear, consolidated, and always up-to-date view of product performance across all retail channels.
+To create a **multi-tenant SaaS platform** that provides each customer with a central, automated system for ingesting, cleaning, and standardizing sales data from all their resellers. The platform delivers:
+
+- **Complete Data Isolation:** Each customer has their own dedicated database
+- **Customizable Processing:** Tenant-specific vendor configurations without code changes
+- **Scalable Architecture:** Database-per-tenant model for maximum security and flexibility
+- **SaaS Efficiency:** Single codebase serves all customers with instant updates
 
 ## 2. User Personas
 
-The intended users of this system are internal business stakeholders:
+### 2.1. SaaS Customers (Tenants)
 
--   **Sales Analysts:** Need to track performance, identify trends, and create detailed reports.
--   **Account Managers:** Need to monitor the sales activity of their specific reseller partners.
--   **Business Intelligence Teams:** Need a reliable, clean data source to feed into larger corporate analytics platforms.
--   **Management:** Need a high-level, aggregated overview of company-wide sales performance to inform strategic decisions.
+The platform serves multiple independent customers (tenants), each operating in retail/distribution:
+
+- **Tenant Organization:** Company accessing via branded subdomain (e.g., customer1.taskifai.com)
+- **Isolated Environment:** Dedicated database, custom configurations, separate user accounts
+- **Self-Service:** Ability to customize vendor processing rules without vendor intervention
+
+### 2.2. End Users (Within Each Tenant)
+
+Within each customer organization, the intended users include:
+
+-   **Sales Analysts:** Track performance, identify trends, and create detailed reports
+-   **Account Managers:** Monitor the sales activity of their specific reseller partners
+-   **Business Intelligence Teams:** Reliable, clean data source to feed into larger corporate analytics platforms
+-   **Management:** High-level, aggregated overview of company-wide sales performance to inform strategic decisions
+
+### 2.3. Platform Administrators
+
+-   **TaskifAI Admins:** Manage tenant provisioning, platform updates, and system-wide configurations
 
 ## 3. Product & Feature Requirements
 
@@ -85,6 +106,19 @@ The intended users of this system are internal business stakeholders:
 -   **Report Format Selection:** Users must be able to choose report format for scheduled deliveries (PDF, CSV, Excel).
 -   **Email Audit Log:** The system must maintain a log of all emails sent for compliance and troubleshooting.
 
+### 3.8. Epic: Multi-Tenant Management & Configuration
+
+-   **Tenant Provisioning:** Platform admins must be able to create new tenants (customers) via secure API
+-   **Subdomain Assignment:** Each tenant must have a unique subdomain (customer1.taskifai.com)
+-   **Database Isolation:** Each tenant must have a dedicated database (Supabase project)
+-   **Vendor Configuration:** Tenants must be able to customize vendor processing rules via configuration (no code changes)
+-   **Default Configurations:** System must provide baseline vendor configurations that tenants can override
+-   **Configuration Inheritance:** Tenant configs must inherit from defaults and only override specific parameters
+-   **Tenant Suspension:** Platform admins must be able to suspend/reactivate tenants
+-   **Tenant Registry:** Secure master database must maintain subdomain→tenant_id→database_url mappings
+-   **Connection Management:** System must dynamically route database connections based on tenant context
+-   **Tenant Context Security:** All requests must be scoped to the authenticated tenant (no cross-tenant data access)
+
 ## 4. Data & System Requirements
 
 ### 4.1. Data Model
@@ -118,10 +152,13 @@ The system must capture the following data points for each sales transaction to 
 ### 4.2. System Architecture
 
 The system will be composed of:
--   A **Decoupled Frontend Application** (SPA).
--   A **Backend API Server** handling business logic.
--   A **Background Worker** for asynchronous data processing.
--   A **Relational Database** as the single source of truth.
+-   A **Subdomain Routing Layer** for tenant identification
+-   A **Decoupled Frontend Application** (SPA) - shared across all tenants
+-   A **Backend API Server** with tenant context middleware
+-   A **Background Worker** for tenant-aware asynchronous processing
+-   A **Database-per-Tenant Architecture** (multiple Supabase projects)
+-   A **Master Tenant Registry** for subdomain→tenant_id→database mapping
+-   A **Configuration-Driven Vendor Processing Engine** for tenant customization
 
 ## 5. Technical Implementation Notes
 

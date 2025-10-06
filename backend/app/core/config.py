@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     """Application settings with environment variable support"""
 
     # Application
-    app_name: str = "BIBBI Sales Analytics Platform"
+    app_name: str = "TaskifAI Analytics Platform"
     app_version: str = "2.0.0"
     debug: bool = False
 
@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     # SendGrid
     sendgrid_api_key: str
     sendgrid_from_email: str
-    sendgrid_from_name: str = "BIBBI Analytics"
+    sendgrid_from_name: str = "TaskifAI"
 
     # File Upload
     max_upload_size: int = 100 * 1024 * 1024  # 100MB

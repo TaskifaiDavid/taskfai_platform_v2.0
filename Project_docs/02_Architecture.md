@@ -1,10 +1,35 @@
 # 2. System Architecture
 
-This document outlines the high-level architecture of the system. It is designed as a modern web application with a decoupled frontend and backend, supported by a background processing system.
+This document outlines the high-level architecture of the TaskifAI multi-tenant SaaS platform. It is designed as a modern web application with a decoupled frontend and backend, supported by a background processing system, with tenant-aware data isolation.
 
-## 2.1. Core Components
+## 2.1. Multi-Tenant Architecture Model
 
-The system consists of seven main components:
+TaskifAI implements a **database-per-tenant** architecture for maximum data isolation and security:
+
+### Tenant Isolation Strategy
+- **Dedicated Database:** Each customer (tenant) has their own Supabase PostgreSQL database
+- **Physical Separation:** Complete data isolation - impossible to query across tenants
+- **Custom Schemas:** Each tenant can have unique table structures and configurations
+- **Independent Scaling:** Tenants scale independently based on their data volume
+
+### Tenant Context Flow
+```
+User Request → Subdomain Detection → Tenant Identification → Database Routing → Response
+```
+
+1. User accesses `customer1.taskifai.com`
+2. System extracts subdomain → identifies tenant_id
+3. Loads tenant-specific database configuration
+4. All operations execute against tenant's database
+5. Response returned to user
+
+### Demo vs Production
+- **Demo Mode:** Single database with `tenant_id = "demo"` for initial testing
+- **Production Mode:** Database-per-tenant with dynamic connection management
+
+## 2.2. Core Components
+
+The system consists of eight main components:
 
 1.  **Frontend Application:** A single-page application (SPA) built with a modern JavaScript framework. It is responsible for all user interface elements, interactions, data visualization, AI chat interface, and dashboard embedding. It does not contain any business logic.
 
@@ -49,9 +74,21 @@ The system consists of seven main components:
     - **External Dashboards:** Third-party analytics platforms (Looker, Tableau, Power BI, Metabase) embedded via iframes
     - **SMTP Provider:** Email delivery service (SendGrid, Amazon SES, etc.)
 
-## 2.2. Complete System Architecture Diagram
+8. **Tenant Management Service:** A dedicated component for multi-tenant operations:
+    - Tenant provisioning and deprovisioning
+    - Subdomain to tenant_id mapping
+    - Database connection management and pooling
+    - Tenant-specific configuration storage
+    - Vendor configuration per tenant
+
+## 2.3. Complete System Architecture Diagram
 
 ```
+                    ┌──────────────────────────────────────────┐
+                    │   Subdomain Routing Layer                │
+                    │   customer1.taskifai.com → Tenant ID     │
+                    └──────────────────┬───────────────────────┘
+                                       ↓
                     ┌─────────────────────────────────────────┐
                     │      Frontend Application (SPA)         │
                     │  ┌───────────────────────────────────┐  │
@@ -66,34 +103,51 @@ The system consists of seven main components:
         ┌────────────────────────────────────────────────────────┐
         │           Backend API Server (FastAPI)                 │
         │  ┌──────────────────────────────────────────────────┐  │
+        │  │ • Tenant Context Middleware (Subdomain→TenantID) │  │
         │  │ • Authentication & Authorization (JWT)           │  │
         │  │ • Upload Endpoints                               │  │
         │  │ • Chat Endpoints                                 │  │
         │  │ • Dashboard Management Endpoints                 │  │
         │  │ • Email Notification Endpoints                   │  │
         │  │ • Analytics Endpoints                            │  │
+        │  │ • Tenant Management API (Admin)                  │  │
         │  └──────────────────────────────────────────────────┘  │
         └─┬──────────┬──────────────┬────────────────────────┬──┘
           │          │              │                        │
           │          │              │                        │
           ↓          ↓              ↓                        ↓
     ┌─────────┐  ┌──────────┐  ┌──────────────┐  ┌───────────────────┐
-    │Background│  │ AI Chat  │  │Email Service │  │   Database        │
-    │ Worker   │  │ Engine   │  │              │  │  (PostgreSQL/     │
-    │          │  │          │  │              │  │   Supabase)       │
-    │ • File   │  │• LangChain│ │• Notification│  │                   │
-    │   Process│  │• OpenAI  │  │• Reports     │  │• Users            │
-    │ • Vendor │  │  GPT-4   │  │• Templates   │  │• Products         │
-    │   Detec  │  │• Intent  │  │• SMTP        │  │• sellout_entries2 │
-    │ • Data   │  │  Detect  │  │              │  │• ecommerce_orders │
-    │   Clean  │  │• Memory  │  │              │  │• conversation_    │
-    │ • Report │  │• SQL     │  │              │  │  history          │
-    │   Gen    │  │  Validate│  │              │  │• dashboard_configs│
-    └─────┬───┘  └────┬─────┘  └──────┬───────┘  │• email_logs       │
-      │   │           │                │          │• upload_batches   │
-      │   │           │                │          │• error_reports    │
-      │   └───────────┴────────────────┴──────────┤                   │
-      │                                            └───────────────────┘
+    │Background│  │ AI Chat  │  │Email Service │  │Tenant DB Manager  │
+    │ Worker   │  │ Engine   │  │              │  │                   │
+    │          │  │          │  │              │  │• Connection Pool  │
+    │ • File   │  │• LangChain│ │• Notification│  │• Dynamic Routing  │
+    │   Process│  │• OpenAI  │  │• Reports     │  │• Tenant Registry  │
+    │ • Vendor │  │  GPT-4   │  │• Templates   │  │                   │
+    │   Detec  │  │• Intent  │  │• SMTP        │  │                   │
+    │ • Config │  │  Detect  │  │              │  │                   │
+    │   Driven │  │• Memory  │  │              │  │                   │
+    │ • Report │  │• SQL     │  │              │  │                   │
+    │   Gen    │  │  Validate│  │              │  │                   │
+    └─────┬───┘  └────┬─────┘  └──────┬───────┘  └─────────┬─────────┘
+      │   │           │                │                    │
+      │   │           │                │                    ↓
+      │   │           │                │          ┌─────────────────────┐
+      │   │           │                │          │ Tenant Databases    │
+      │   │           │                │          │ (Supabase Projects) │
+      │   │           │                │          │                     │
+      │   │           │                │          │ Tenant 1 DB         │
+      │   └───────────┴────────────────┴──────────┤ • Users             │
+      │                                            │ • Products          │
+      │                                            │ • sellout_entries2  │
+      │                                            │ • vendor_configs    │
+      │                                            │ • ...               │
+      │                                            │                     │
+      │                                            │ Tenant 2 DB         │
+      │                                            │ (separate instance) │
+      │                                            │                     │
+      │                                            │ Demo DB             │
+      │                                            │ (initial testing)   │
+      │                                            └─────────────────────┘
       │
       └─────────────────────────────────────┐
                                             ↓
@@ -111,19 +165,30 @@ The system consists of seven main components:
                         └───────────────────────────────────┘
 ```
 
-## 2.3. Key Data Flows
+## 2.4. Key Data Flows
 
-### File Upload & Processing Flow:
+### Tenant-Aware Request Flow:
 
-1.  User uploads file via **Frontend Application**
-2.  File sent to **Backend API Server** upload endpoint
-3.  API creates processing job and queues it for **Background Worker**
-4.  Background Worker:
+1. User accesses `customer1.taskifai.com`
+2. **Subdomain Detection**: Middleware extracts subdomain
+3. **Tenant Identification**: Maps subdomain → tenant_id from registry
+4. **Database Routing**: Loads tenant-specific database connection
+5. **Request Processing**: All operations execute against tenant's database
+6. **Response**: Data returned to user (only from their database)
+
+### File Upload & Processing Flow (Tenant-Aware):
+
+1.  User uploads file via **Frontend Application** (on customer1.taskifai.com)
+2.  File sent to **Backend API Server** upload endpoint (with tenant context)
+3.  API creates processing job with tenant_id and queues it for **Background Worker**
+4.  Background Worker (tenant-aware):
+    - Loads tenant-specific database connection
     - Detects vendor format
-    - Applies vendor-specific normalization
+    - Loads vendor configuration from tenant's database
+    - Applies configuration-driven normalization
     - Validates and cleans data
-    - Writes to **Database** (sellout_entries2 or ecommerce_orders)
-5.  **Email Service** sends success/failure notification
+    - Writes to tenant's **Database** (sellout_entries2 or ecommerce_orders)
+5.  **Email Service** sends success/failure notification (tenant-branded)
 6.  Frontend polls status endpoint for completion
 
 ### AI Chat Query Flow:

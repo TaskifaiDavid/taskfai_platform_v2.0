@@ -1,6 +1,6 @@
 # 12. Technology Stack Recommendations
 
-This document provides recommended technologies for implementing the Bibbi Parfum Sales Data Analytics Platform based on the system requirements, architecture, and feature specifications.
+This document provides recommended technologies for implementing the TaskifAI Multi-Tenant SaaS Analytics Platform based on the system requirements, architecture, and feature specifications.
 
 ## 12.1. Technology Selection Criteria
 
@@ -184,8 +184,8 @@ SECRET_KEY = os.getenv("SECRET_KEY")  # From environment
 
 ### **Database**
 
-#### **Primary Database: Supabase (PostgreSQL 17/18)**
-**Why Supabase (2025):**
+#### **Primary Database: Supabase (PostgreSQL 17/18) - Multi-Tenant Architecture**
+**Why Supabase for Multi-Tenant (2025):**
 - ✅ PostgreSQL 17 currently supported (PostgreSQL 18 support coming soon)
 - ✅ PostgreSQL 18 features (Sept 2025 release):
   - Asynchronous I/O subsystem (up to 3x performance gains)
@@ -206,6 +206,29 @@ SECRET_KEY = os.getenv("SECRET_KEY")  # From environment
 **Alternative:** Self-hosted PostgreSQL 17/18
 
 **Note:** Supabase currently runs PostgreSQL 17. PostgreSQL 18 was released September 25, 2025 and support on managed platforms is expected soon.
+
+**Multi-Tenant Implementation:**
+
+**Database-per-Tenant Model:**
+```
+Tenant 1 → Supabase Project A ($25/month)
+Tenant 2 → Supabase Project B ($25/month)
+Demo    → Supabase Project Demo ($0 free tier)
+```
+
+**Operational Considerations:**
+- Each customer = separate Supabase project
+- Independent scaling per tenant
+- Isolated backups and point-in-time recovery
+- Custom schema evolution per tenant
+- Expected cost: $25/tenant/month (Pro tier)
+
+**Connection Management:**
+- Dynamic connection pooling per tenant
+- Master tenant registry for credential storage
+- Encrypted database credentials (AES-256)
+- Connection caching with 15-minute TTL
+- Automatic connection cleanup
 
 **Connection Library (Latest 2025):**
 ```python
@@ -514,9 +537,9 @@ httpx==0.25.2         # Async HTTP client for testing
 
 ---
 
-## 12.3. Deployment Architecture
+## 12.3. Multi-Tenant Deployment Architecture
 
-### **Recommended Deployment: Cloud Platform**
+### **Recommended Deployment: Cloud Platform (Multi-Tenant SaaS)**
 
 #### **Option 1: Vercel (Frontend) + Railway (Backend)**
 
@@ -570,6 +593,34 @@ httpx==0.25.2         # Async HTTP client for testing
 - ❌ Higher costs ($100-300/month minimum)
 
 **Recommended for:** Production at scale (1000+ users)
+
+---
+
+### **Multi-Tenant Deployment Strategy**
+
+**Subdomain Routing:**
+```
+customer1.taskifai.com → Backend extracts subdomain → Routes to Tenant 1 DB
+customer2.taskifai.com → Backend extracts subdomain → Routes to Tenant 2 DB
+```
+
+**DNS Configuration:**
+- Wildcard DNS: *.taskifai.com → Frontend (Vercel)
+- Backend receives full hostname, extracts subdomain
+- Tenant registry maps subdomain → tenant_id → database_url
+
+**Deployment Flow:**
+1. **Single Application Instance:** One backend deployment serves all tenants
+2. **Tenant Context Middleware:** Intercepts requests, extracts tenant_id
+3. **Dynamic DB Connection:** Connects to tenant-specific database
+4. **Shared Codebase:** All tenants use same code version
+5. **Updates:** Deploy once, affects all customers instantly
+
+**Scaling Considerations:**
+- **Vertical Scaling:** Increase backend server resources as tenants grow
+- **Database Scaling:** Each tenant database scales independently
+- **Connection Pool:** Limit per-tenant connections (max 10 per tenant)
+- **Cache Layer:** Redis with tenant-prefixed keys for isolation
 
 ---
 

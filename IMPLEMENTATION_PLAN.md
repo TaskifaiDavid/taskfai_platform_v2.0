@@ -1,8 +1,8 @@
-# BIBBI v2 - Complete Implementation Plan
+# TaskifAI - Complete Implementation Plan
 
-**Project:** Sales Data Analytics Platform with AI-Powered Insights
+**Project:** Multi-Tenant SaaS Analytics Platform with AI-Powered Insights
 **Start Date:** January 2025
-**Current Phase:** Phase 1 Complete ✅ → Ready for Phase 2
+**Current Phase:** Phase 1 Complete ✅ → Phase 1.5 (Multi-Tenant Base) In Progress
 
 ---
 
@@ -206,9 +206,224 @@ Build the foundational data ingestion pipeline with file uploads, background pro
 
 ---
 
+## 🚀 PHASE 1.5: Multi-Tenant Base Architecture
+
+**Status:** 🔄 In Progress
+**Estimated Duration:** 2 weeks
+**Priority:** CRITICAL
+**Completion Date:** Target October 20, 2025
+
+### Objectives
+Transform the single-user system into a multi-tenant SaaS base with demo account, architected for easy customer addition later.
+
+### 1.5.1 Rebranding (Days 1-2) 🔄
+
+#### Tasks
+- [ ] **Update branding across codebase**
+  - File: `backend/app/core/config.py`
+    - Change app_name: "BIBBI" → "TaskifAI Analytics Platform"
+    - Change sendgrid_from_name: "BIBBI Analytics" → "TaskifAI"
+  - File: `frontend/package.json`
+    - Change name: "bibbi-frontend" → "taskifai-frontend"
+  - File: `frontend/index.html`
+    - Update title and meta tags
+  - Search and replace all "BIBBI" references
+
+- [ ] **Update email templates**
+  - Files: `backend/app/services/email/templates/*.html`
+  - Replace branding: BIBBI → TaskifAI
+  - Update logo and color scheme
+
+**Testing:** ✓ All branding consistent across platform
+
+---
+
+### 1.5.2 Tenant Context Infrastructure (Days 3-7) 🔄
+
+#### Tasks
+- [ ] **Create tenant context system**
+  - File: `backend/app/core/tenant.py` (NEW)
+    ```python
+    class TenantContext:
+        tenant_id: str = "demo"  # Hardcoded for base
+        company_name: str = "TaskifAI Demo"
+        database_config: dict
+    ```
+
+- [ ] **Create tenant models**
+  - File: `backend/app/models/tenant.py` (NEW)
+    ```python
+    class Tenant(BaseModel):
+        tenant_id: str
+        company_name: str
+        subdomain: str
+        database_url: str
+        database_credentials: str  # Encrypted
+        is_active: bool
+    ```
+
+- [ ] **Create tenant registry schema**
+  - File: `backend/db/tenants_schema.sql` (NEW)
+    ```sql
+    CREATE TABLE tenants (
+        tenant_id UUID PRIMARY KEY,
+        subdomain VARCHAR(50) UNIQUE,
+        company_name VARCHAR(255),
+        database_url TEXT,
+        database_credentials TEXT,  -- Encrypted
+        is_active BOOLEAN,
+        created_at TIMESTAMP
+    );
+    ```
+
+- [ ] **Implement subdomain detection**
+  - File: `backend/app/middleware/tenant.py` (NEW)
+    - Extract subdomain from request hostname
+    - Map subdomain → tenant_id (from registry)
+    - Inject tenant context into request state
+
+- [ ] **Update dependencies for tenant context**
+  - File: `backend/app/core/dependencies.py`
+    - Modify `get_supabase_client()` to accept tenant_id
+    - For demo: return demo database
+    - For future: lookup tenant DB config
+
+**Testing:** ✓ Tenant context available in all requests
+✓ Demo mode works with tenant_id="demo"
+
+---
+
+### 1.5.3 Configuration-Driven Vendor System (Days 8-12) 🔄
+
+#### Tasks
+- [ ] **Create vendor configuration schema**
+  - File: `backend/app/models/vendor_config.py` (NEW)
+    ```python
+    class VendorConfig(BaseModel):
+        vendor_name: str
+        currency: str
+        column_mapping: Dict[str, str]
+        transformation_rules: Dict
+        validation_rules: Dict
+    ```
+
+- [ ] **Create vendor_configs table**
+  - File: `backend/db/vendor_configs_table.sql` (NEW)
+    ```sql
+    CREATE TABLE vendor_configs (
+        config_id UUID PRIMARY KEY,
+        tenant_id UUID,  -- NULL for defaults
+        vendor_name VARCHAR(100),
+        config_data JSONB,
+        is_active BOOLEAN,
+        is_default BOOLEAN
+    );
+    ```
+
+- [ ] **Seed default vendor configurations**
+  - File: `backend/db/seed_vendor_configs.sql` (NEW)
+    - Insert default Boxnox config
+    - Insert default configs for all 9 vendors
+
+- [ ] **Create configuration API**
+  - File: `backend/app/api/vendor_configs.py` (NEW)
+    - `GET /api/vendors/configs` - List configs
+    - `GET /api/vendors/configs/{vendor}` - Get specific
+    - `PUT /api/vendors/configs/{vendor}` - Update/create
+    - `DELETE /api/vendors/configs/{vendor}` - Reset to default
+
+- [ ] **Build generic configurable processor**
+  - File: `backend/app/services/vendors/config_processor.py` (NEW)
+    ```python
+    class ConfigurableProcessor:
+        def process(self, file, config: VendorConfig):
+            # Use config instead of hardcoded logic
+            # Apply column mappings from config
+            # Apply validation rules from config
+    ```
+
+- [ ] **Refactor Boxnox processor to use config**
+  - Update `boxnox_processor.py` to use configuration
+  - Keep as example, migrate logic to ConfigurableProcessor
+
+- [ ] **Configuration loading logic**
+  - File: `backend/app/services/vendors/config_loader.py` (NEW)
+    - Load tenant-specific config if exists
+    - Fallback to default config
+    - Merge with inheritance rules
+
+**Testing:** ✓ Boxnox processor uses config from database
+✓ Can override config per tenant
+✓ Default configs work for demo tenant
+
+---
+
+### 1.5.4 Database Connection Management (Days 13-14) 🔄
+
+#### Tasks
+- [ ] **Create tenant database manager**
+  - File: `backend/app/core/db_manager.py` (NEW)
+    ```python
+    class TenantDatabaseManager:
+        def get_connection(self, tenant_id: str):
+            # Load tenant DB config
+            # Create/reuse connection pool
+            # Return tenant-specific client
+    ```
+
+- [ ] **Implement connection pooling**
+  - Cache connections per tenant (15-min TTL)
+  - Max 10 connections per tenant
+  - Auto-cleanup idle connections
+
+- [ ] **Update all database calls**
+  - Ensure all queries use tenant-aware connection
+  - Update background workers for tenant context
+  - Update Celery tasks to accept tenant_id
+
+- [ ] **Encryption for credentials**
+  - File: `backend/app/core/encryption.py` (NEW)
+    - Encrypt database credentials (AES-256)
+    - Decrypt when loading tenant config
+
+**Testing:** ✓ Demo tenant uses correct database
+✓ Connection pooling works
+✓ Credentials encrypted at rest
+
+---
+
+### 1.5.5 Documentation Updates (Completed ✅)
+
+#### Completed Files
+- [x] `Project_docs/01_System_Overview.md` - Multi-tenant context added
+- [x] `Project_docs/02_Architecture.md` - Tenant layer added
+- [x] `Project_docs/05_Data_Processing_Pipeline.md` - Config-driven processing
+- [x] `Project_docs/10_Security_Architecture.md` - Tenant security model
+- [x] `Project_docs/12_Technology_Stack_Recommendations.md` - Multi-tenant deployment
+- [x] `Project_docs/PRD.md` - SaaS vision and tenant management
+- [x] `Project_docs/13_Multi_Tenant_Architecture.md` (NEW) - Complete architecture guide
+- [x] `Project_docs/14_Tenant_Provisioning_Guide.md` (NEW) - Customer onboarding guide
+- [x] `Project_docs/15_Configuration_System.md` (NEW) - Config-driven vendor processing
+
+---
+
+### Phase 1.5 Completion Checklist
+- [ ] All "BIBBI" references replaced with "TaskifAI"
+- [ ] Tenant context infrastructure in place
+- [ ] Demo mode works with tenant_id="demo"
+- [ ] Vendor configurations stored in database
+- [ ] Generic configurable processor operational
+- [ ] Database connection layer supports multi-tenant
+- [ ] All documentation updated
+- [ ] Ready to add first customer with simple provisioning
+
+**Deliverable:** TaskifAI multi-tenant base ready for demo and future customer expansion
+
+---
+
 ## 🔧 PHASE 2: Multi-Vendor Support
 
-**Status:** ⏳ Pending Phase 1
+**Status:** ⏳ Pending Phase 1.5
 **Estimated Duration:** 2 weeks
 **Priority:** HIGH
 
@@ -700,40 +915,48 @@ Implement natural language querying using OpenAI GPT-4 + LangChain/LangGraph.
 ### Current Status
 - **Phase 0:** ✅ 100% Complete (Foundation)
 - **Phase 1:** ✅ 100% Complete (Core Data Pipeline)
-- **Phase 2:** 🔜 0% (Ready to start - Multi-Vendor Support)
+- **Phase 1.5:** 🔄 50% In Progress (Multi-Tenant Base - Documentation Complete, Code Pending)
+- **Phase 2:** ⏳ 0% (Blocked by Phase 1.5 - Multi-Vendor Support)
 - **Phase 3:** ⏳ 0% (Blocked by Phase 2)
 - **Phase 4:** ⏳ 0% (Blocked by Phase 3)
 - **Phase 5:** ⏳ 0% (Blocked by Phase 4)
 - **Phase 6:** ⏳ 0% (Blocked by Phase 5)
 
-### Overall Progress: 29% (2/7 phases complete)
+### Overall Progress: 31% (2.5/8 phases complete)
 
 ---
 
 ## 🎯 Next Actions
 
-**✅ Phase 1 Complete - Ready for Phase 2**
+**✅ Phase 1 Complete**
+**🔄 Phase 1.5 In Progress - Documentation Complete**
 
 **Immediate Next Steps:**
-1. Test Phase 1 with real Boxnox files
-2. Verify email notifications working
-3. Start Phase 2: Implement Galilu processor (Poland, PLN)
-4. Continue with remaining vendor processors
+1. ✅ Complete documentation updates (DONE)
+2. 🔄 Rebrand codebase (BIBBI → TaskifAI)
+3. 🔄 Build tenant context infrastructure
+4. 🔄 Implement configuration-driven vendor system
+5. 🔄 Update database connection management
+6. 🔄 Test demo mode thoroughly
 
-**Next Sprint Goal (Weeks 3-4):**
-Complete all 8 additional vendor processors and currency conversion
+**Next Sprint Goal (Weeks 5-6):**
+Complete Phase 1.5: Multi-tenant base with demo mode operational
+
+**After Phase 1.5:**
+Begin Phase 2 - Implement remaining 8 vendor processors using configuration system
 
 ---
 
 ## 📝 Notes
 
+- Phase 1.5 adds multi-tenant foundation without breaking existing functionality
+- Documentation-first approach ensures clear implementation path
+- Demo mode provides testing environment for multi-tenant features
+- Configuration system eliminates code deployments for vendor changes
 - Each phase builds on the previous one
-- Tasks can be parallelized within phases (frontend + backend)
 - Testing should happen throughout, not just in Phase 6
-- Adjust timeline based on team size and availability
-- Keep documentation updated as you progress
 
 ---
 
-**Last Updated:** October 3, 2025
-**Status:** Phase 1 Complete ✅ - Phase 2 Ready to Begin 🔜
+**Last Updated:** October 6, 2025
+**Status:** Phase 1.5 In Progress 🔄 - Documentation Complete ✅

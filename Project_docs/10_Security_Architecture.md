@@ -1,43 +1,115 @@
 # 10. Security Architecture
 
-This document outlines the security patterns, authentication mechanisms, and data protection strategies employed throughout the system.
+This document outlines the security patterns, authentication mechanisms, and data protection strategies employed throughout the TaskifAI multi-tenant SaaS platform.
 
 ## 10.1. Security Principles
 
 ### Core Security Goals
 
-1. **Authentication:** Verify user identity before granting access
-2. **Authorization:** Ensure users can only access their own data
-3. **Data Isolation:** Prevent cross-user data leakage
-4. **Input Validation:** Protect against injection attacks
-5. **Secure Communication:** Encrypt data in transit
-6. **Audit Logging:** Track security-relevant events
+1. **Multi-Tenant Isolation:** Complete physical data separation between customers (database-per-tenant)
+2. **Authentication:** Verify user identity before granting access
+3. **Authorization:** Ensure users can only access their own data within their tenant
+4. **Data Isolation:** Prevent cross-tenant and cross-user data leakage
+5. **Input Validation:** Protect against injection attacks
+6. **Secure Communication:** Encrypt data in transit and at rest
+7. **Audit Logging:** Track security-relevant events per tenant
+8. **Tenant Context Security:** Ensure subdomain→tenant_id mapping is secure and tamper-proof
 
 ### Defense in Depth
 
 The system employs multiple layers of security:
 
 ```
-Layer 1: Network Security (HTTPS, TLS)
+Layer 0: Tenant Isolation (Physical database separation)
     ↓
-Layer 2: Authentication (JWT tokens)
+Layer 1: Network Security (HTTPS, TLS, Subdomain validation)
     ↓
-Layer 3: Authorization (User-specific data filtering)
+Layer 2: Tenant Context (Subdomain→TenantID mapping)
     ↓
-Layer 4: Input Validation (SQL injection prevention)
+Layer 3: Authentication (JWT tokens with tenant_id claim)
     ↓
-Layer 5: Data Encryption (At rest and in transit)
+Layer 4: Authorization (Tenant-specific database routing)
     ↓
-Layer 6: Audit Logging (Security event tracking)
+Layer 5: Input Validation (SQL injection prevention)
+    ↓
+Layer 6: Data Encryption (At rest and in transit)
+    ↓
+Layer 7: Audit Logging (Per-tenant security event tracking)
 ```
 
 ---
 
-## 10.2. Authentication System
+## 10.2. Multi-Tenant Security Model
+
+### Database-per-Tenant Isolation
+
+TaskifAI implements the highest level of data isolation: **physical database separation**.
+
+**Architecture:**
+```
+Tenant 1 → Supabase Project A → Database A (completely isolated)
+Tenant 2 → Supabase Project B → Database B (completely isolated)
+Demo    → Supabase Project Demo → Database Demo (testing)
+```
+
+**Security Benefits:**
+- ✅ **Impossible Cross-Tenant Queries:** Even with SQL injection, cannot access other tenant data
+- ✅ **Independent Security:** Each database has own credentials, RLS policies, encryption keys
+- ✅ **Compliance:** Meets strictest data residency and isolation requirements
+- ✅ **Schema Flexibility:** Tenants can have custom table structures without affecting others
+- ✅ **Audit Trail:** Separate logs per tenant for compliance
+
+### Tenant Context Security
+
+**Subdomain to Tenant ID Mapping:**
+
+```python
+# Secure tenant resolution flow
+1. Extract subdomain from request: customer1.taskifai.com → "customer1"
+2. Lookup tenant_id from master tenant registry (cached, encrypted)
+3. Validate tenant is active and not suspended
+4. Load tenant-specific database credentials (encrypted at rest)
+5. Create database connection with tenant credentials
+6. Inject tenant_id into JWT token claims
+7. All operations execute against tenant's database
+```
+
+**Security Measures:**
+- Tenant registry stored in secure master database
+- Database credentials encrypted at rest (AES-256)
+- Subdomain validation (prevent subdomain spoofing)
+- Tenant suspension flag for immediate access revocation
+- Connection pool isolation per tenant
+
+### Tenant Provisioning Security
+
+**New Tenant Creation:**
+```
+1. Admin creates tenant via secure API endpoint (admin-only)
+2. Generate unique tenant_id (UUID)
+3. Create new Supabase database project
+4. Generate unique database credentials (stored encrypted)
+5. Run schema migration on new database
+6. Seed default configurations (vendor configs, RLS policies)
+7. Configure subdomain DNS mapping
+8. Add tenant to registry with is_active=true
+9. Audit log all provisioning steps
+```
+
+**Security Controls:**
+- Only platform admins can create tenants
+- Provisioning requires multi-factor authentication
+- Database credentials never exposed to tenant users
+- Automatic security baseline (RLS, encryption) applied
+- Provisioning failures rollback completely
+
+---
+
+## 10.3. Authentication System
 
 ### JWT-Based Authentication
 
-**Token Structure:**
+**Token Structure (Tenant-Aware):**
 ```json
 {
   "header": {
@@ -46,13 +118,20 @@ Layer 6: Audit Logging (Security event tracking)
   },
   "payload": {
     "user_id": "user_123",
+    "tenant_id": "customer1",
     "email": "user@example.com",
     "role": "analyst",
+    "subdomain": "customer1",
     "exp": 1678901234
   },
   "signature": "..."
 }
 ```
+
+**Tenant-Specific Claims:**
+- `tenant_id`: Unique identifier for the customer/tenant
+- `subdomain`: Validates request origin matches token
+- Both used for database routing and access control
 
 **Authentication Flow:**
 
@@ -153,11 +232,11 @@ X-Request-ID: <unique_id>
 | Delete users | ❌ | ✅ |
 | View system logs | ❌ | ✅ |
 
-### User Data Isolation
+### User Data Isolation (Within Tenant)
 
-**Database-Level Isolation (Row Level Security):**
+**Per-Tenant Database + Row Level Security:**
 
-Supabase provides automatic user isolation via RLS policies:
+Each tenant has their own database with RLS policies for user-level isolation:
 
 ```sql
 -- Enable RLS on table
@@ -185,6 +264,18 @@ WHERE month = 5 AND year = 2024;
 -- INCORRECT: Without RLS enabled (security vulnerability)
 -- All users would see all data
 ```
+
+**Two-Layer Isolation:**
+
+1. **Tenant-Level (Physical):** Each customer has separate database
+   - Tenant A users → Database A
+   - Tenant B users → Database B
+   - **Impossible to query across tenants** even with SQL injection
+
+2. **User-Level (RLS):** Within tenant database, users isolated by RLS
+   - User 1 → Sees only their data
+   - User 2 → Sees only their data
+   - Automatic filtering via `auth.uid()`
 
 **Automatic Filtering with Supabase:**
 

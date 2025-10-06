@@ -1,6 +1,6 @@
 # 5. Data Processing Pipeline
 
-This document describes the abstract, step-by-step process for transforming a raw, uploaded data file into structured data in the database.
+This document describes the abstract, step-by-step process for transforming a raw, uploaded data file into structured data in the database using a **configuration-driven** approach that supports tenant-specific customization.
 
 ## Pipeline Stages
 
@@ -43,9 +43,75 @@ The pipeline is a sequence of stages, executed by the Background Worker.
 
 ---
 
+## Configuration-Driven Processing Architecture
+
+TaskifAI uses a **configuration-driven** approach to vendor processing, allowing each tenant to customize data transformation rules without code changes.
+
+### Architecture Overview
+
+**Traditional Approach (Hardcoded):**
+```
+Boxnox File → BoxnoxProcessor.py (hardcoded logic) → Database
+```
+
+**Configuration-Driven Approach (TaskifAI):**
+```
+Vendor File → Generic Processor → Load Vendor Config (JSON from DB) → Apply Rules → Database
+```
+
+### Benefits
+
+1. **Tenant Customization**: Each customer can have unique vendor configurations
+2. **No Code Deployment**: Adding/modifying vendor logic = database config update only
+3. **Scalability**: One generic processor handles all vendors via configuration
+4. **Versioning**: Configuration changes are tracked and can be rolled back
+
+### Vendor Configuration Schema
+
+Each vendor configuration is stored as JSON in the tenant's database:
+
+```json
+{
+  "vendor_name": "Boxnox",
+  "tenant_id": "customer1",
+  "currency": "EUR",
+  "header_row": 0,
+  "pivot_format": false,
+  "column_mapping": {
+    "Product EAN": "product_ean",
+    "Functional Name": "functional_name",
+    "Sold Qty": "quantity",
+    "Sales Amount (EUR)": "sales_eur"
+  },
+  "transformation_rules": {
+    "currency_conversion": null,
+    "date_format": "YYYY-MM-DD"
+  },
+  "validation_rules": {
+    "ean_length": 13,
+    "month_range": [1, 12],
+    "required_fields": ["product_ean", "quantity", "month", "year"]
+  }
+}
+```
+
+### Default vs Tenant-Specific Configurations
+
+- **Default Configs**: System-provided baseline for each vendor (e.g., standard Boxnox config)
+- **Tenant Overrides**: Customers can override any config parameter for their needs
+- **Inheritance**: Tenant configs inherit from defaults, only override specific fields
+
+**Example:**
+```
+Default Boxnox Config: { column_mapping: { "Product EAN": "product_ean" } }
+Tenant Override: { column_mapping: { "Product Code": "product_ean" } }  // Different column name
+```
+
+---
+
 ## Vendor-Specific Processing
 
-The system supports multiple vendors, each with unique data formats. The vendor detection system automatically identifies the vendor and applies appropriate transformation rules.
+The system supports multiple vendors, each with unique data formats. The vendor detection system automatically identifies the vendor and applies appropriate transformation rules **loaded from the configuration database**.
 
 ### Vendor Detection Logic
 
@@ -457,47 +523,68 @@ Upload Result:
 
 ---
 
-## Adding New Vendors
+## Adding New Vendors (Configuration-Driven)
 
-**Steps to Add Vendor Support:**
+**Steps to Add Vendor Support (No Code Required):**
 
 1. **Analyze Vendor Format**
-   - Obtain sample files
+   - Obtain sample files from tenant
    - Identify column structure
    - Note currency and units
    - Document any special logic
 
-2. **Create Vendor Configuration**
-   ```python
+2. **Create Vendor Configuration (JSON)**
+   ```json
    {
      "vendor_name": "New Vendor",
+     "tenant_id": "customer1",
      "currency": "USD",
+     "exchange_rate_to_eur": 0.92,
      "header_row": 0,
-     "pivot_format": False,
+     "pivot_format": false,
      "column_mapping": {
        "Qty Sold": "quantity",
        "Revenue": "sales",
        "Product EAN": "product_ean"
+     },
+     "transformation_rules": {
+       "currency_conversion": "USD_to_EUR",
+       "date_format": "MM/DD/YYYY"
+     },
+     "validation_rules": {
+       "ean_length": 13,
+       "required_fields": ["product_ean", "quantity"]
      }
    }
    ```
 
-3. **Implement Normalizer**
-   - Extend base normalizer class
-   - Implement vendor-specific transformations
-   - Handle edge cases
+3. **Add Detection Rules (JSON)**
+   ```json
+   {
+     "filename_keywords": ["new_vendor", "nv"],
+     "sheet_names": ["Sales Data"],
+     "required_columns": ["Product EAN", "Qty Sold"]
+   }
+   ```
 
-4. **Add Detection Rules**
-   - Filename pattern
-   - Sheet name pattern
-   - Content signature
+4. **Store Configuration**
+   - Insert config into tenant's `vendor_configs` table
+   - Set `is_active = true` to enable
+   - System automatically picks up new config
 
 5. **Test with Sample Data**
-   - Verify all rows process correctly
-   - Check currency conversion
-   - Validate output format
+   - Upload sample file
+   - Verify generic processor uses config correctly
+   - Check data transformation output
+   - Validate results
 
-6. **Document**
-   - Add to vendor list in this document
-   - Include example transformations
-   - Note any limitations
+6. **Adjust if Needed**
+   - Update config JSON (no code deployment)
+   - Re-test immediately
+   - Changes apply instantly
+
+**For Advanced Cases Requiring Code:**
+- Complex pivot table logic
+- Special data normalization algorithms
+- Create custom transformation function
+- Reference from config: `"custom_transform": "pivot_table_handler"`
