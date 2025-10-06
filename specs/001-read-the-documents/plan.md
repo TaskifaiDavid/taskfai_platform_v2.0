@@ -1,7 +1,7 @@
 # Implementation Plan: TaskifAI Multi-Tenant SaaS Platform
 
 **Branch**: `001-read-the-documents` | **Date**: 2025-10-06 | **Spec**: [spec.md](spec.md)
-**Input**: Feature specification from `/home/david/BIBBI_v2/specs/001-read-the-documents/spec.md`
+**Input**: Feature specification from `/home/david/TaskifAI_platform_v2.0/specs/001-read-the-documents/spec.md`
 
 ## Summary
 

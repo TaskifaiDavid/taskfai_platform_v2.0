@@ -1,4 +1,4 @@
-# BIBBI v2 - Sales Data Analytics Platform
+# TaskifAI - Sales Data Analytics Platform
 
 A comprehensive sales data analytics platform that ingests, cleans, normalizes, and analyzes multi-channel sales data from various reseller partners, powered by AI-driven insights.
 
@@ -38,7 +38,7 @@ Database (Supabase PostgreSQL 17)
 
 ```bash
 git clone <your-repo-url>
-cd BIBBI_v2
+cd TaskifAI_platform_v2.0
 ```
 
 ### 2. Set Up Environment Variables
@@ -102,7 +102,7 @@ cp .env.example .env
 4. **Set Up Database:**
 ```bash
 # If using local PostgreSQL:
-psql -U postgres -d bibbi -f db/schema.sql
+psql -U postgres -d taskifai -f db/schema.sql
 
 # If using Supabase:
 # Copy contents of db/schema.sql to Supabase SQL Editor and run
@@ -152,11 +152,11 @@ npm run dev
 1. Install PostgreSQL 17
 2. Create database:
 ```bash
-createdb bibbi
+createdb taskifai
 ```
 3. Run schema:
 ```bash
-psql -U postgres -d bibbi -f backend/db/schema.sql
+psql -U postgres -d taskifai -f backend/db/schema.sql
 ```
 
 ## 🔑 Environment Variables
@@ -203,7 +203,7 @@ npm test
 ## 📦 Project Structure
 
 ```
-BIBBI_v2/
+TaskifAI_platform_v2.0/
 ├── backend/
 │   ├── app/
 │   │   ├── api/              # FastAPI routes

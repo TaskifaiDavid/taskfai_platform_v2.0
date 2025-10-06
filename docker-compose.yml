@@ -4,9 +4,9 @@ services:
   # PostgreSQL Database (for local development without Supabase)
   db:
     image: postgres:17-alpine
-    container_name: bibbi-postgres
+    container_name: taskifai-postgres
     environment:
-      POSTGRES_DB: bibbi
+      POSTGRES_DB: taskifai
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
@@ -23,7 +23,7 @@ services:
   # Redis (for Celery message broker and caching)
   redis:
     image: redis:7-alpine
-    container_name: bibbi-redis
+    container_name: taskifai-redis
     ports:
       - "6379:6379"
     healthcheck:
@@ -37,13 +37,13 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: bibbi-backend
+    container_name: taskifai-backend
     ports:
       - "8000:8000"
     env_file:
       - ./backend/.env
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/bibbi
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/taskifai
       - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./backend:/app
@@ -60,11 +60,11 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: bibbi-worker
+    container_name: taskifai-worker
     env_file:
       - ./backend/.env
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/bibbi
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/taskifai
       - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./backend:/app
@@ -81,7 +81,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: bibbi-frontend
+    container_name: taskifai-frontend
     ports:
       - "3000:3000"
     env_file:

@@ -1,11 +1,11 @@
 #!/bin/bash
 
-# BIBBI v2 - Development Setup Script
+# TaskifAI - Development Setup Script
 # This script sets up the development environment
 
 set -e
 
-echo "🚀 BIBBI v2 Development Setup"
+echo "🚀 TaskifAI Development Setup"
 echo "================================"
 
 # Colors

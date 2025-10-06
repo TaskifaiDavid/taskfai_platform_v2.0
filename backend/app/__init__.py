@@ -1,5 +1,5 @@
 """
-BIBBI v2 - Sales Data Analytics Platform
+TaskifAI - Sales Data Analytics Platform
 Backend API Application
 """
 

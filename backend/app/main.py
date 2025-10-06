@@ -1,5 +1,5 @@
 """
-BIBBI v2 - Sales Data Analytics Platform
+TaskifAI - Sales Data Analytics Platform
 Main FastAPI Application
 """
 
@@ -49,7 +49,7 @@ app.include_router(uploads.router, prefix="/api")
 async def root():
     """Root endpoint"""
     return {
-        "message": "BIBBI Sales Analytics Platform API",
+        "message": "TaskifAI Sales Analytics Platform API",
         "version": settings.app_version,
         "docs": "/api/docs"
     }

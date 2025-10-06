@@ -262,7 +262,7 @@ pytest tests/
 ## Files Delivered
 
 ### Test Files (30)
-Located in: `/home/david/BIBBI_v2/backend/tests/`
+Located in: `/home/david/TaskifAI_v2/backend/tests/`
 - Infrastructure: 2 files
 - Integration: 7 files
 - Unit: 1 file
@@ -270,7 +270,7 @@ Located in: `/home/david/BIBBI_v2/backend/tests/`
 - Contract: 15 files
 
 ### Documentation Files (3)
-Located in: `/home/david/BIBBI_v2/claudedocs/`
+Located in: `/home/david/TaskifAI_v2/claudedocs/`
 - Test implementation summary
 - Implementation guide for Phase 3.3
 - Completion summary (this document)

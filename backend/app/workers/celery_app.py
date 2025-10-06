@@ -7,7 +7,7 @@ from app.core.config import settings
 
 # Create Celery instance
 celery_app = Celery(
-    "bibbi_worker",
+    "taskifai_worker",
     broker=settings.redis_url,
     backend=settings.redis_url
 )

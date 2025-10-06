@@ -1,5 +1,5 @@
 -- ============================================
--- BIBBI v2 - Complete Database Schema
+-- TaskifAI - Complete Database Schema
 -- Sales Data Analytics Platform
 -- ============================================
 

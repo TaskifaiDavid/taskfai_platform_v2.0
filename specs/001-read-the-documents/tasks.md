@@ -1,6 +1,6 @@
 # Tasks: TaskifAI Multi-Tenant SaaS Platform
 
-**Input**: Design documents from `/home/david/BIBBI_v2/specs/001-read-the-documents/`
+**Input**: Design documents from `/home/david/TaskifAI_platform_v2.0/specs/001-read-the-documents/`
 **Prerequisites**: plan.md (required), research.md
 **Current Status**: Phase 1 Complete (Single-Tenant MVP) → Upgrading to Full Multi-Tenant
 
@@ -43,11 +43,12 @@
 
 ---
 
-## Total Tasks: 218 (100 completed ✅, 118 remaining ⏳)
+## Total Tasks: 218 (112 completed ✅, 106 remaining ⏳)
 
-**Estimated Remaining Timeline**: 8-10 weeks
-**Priority**: Multi-Tenant Infrastructure → Missing Features → Frontend → Polish
-**Phase 3.2 Status**: ✅ COMPLETED (All TDD tests written - 28 test files, 200+ test cases)
+**Estimated Remaining Timeline**: 7-9 weeks
+**Priority**: Missing Backend Features → Frontend → Polish
+**Phase 3.1 Status**: ✅ COMPLETED (Multi-tenant infrastructure with 7-layer security)
+**Phase 3.2 Status**: ✅ COMPLETED (All TDD tests written - 30 test files, 200+ test cases)
 
 ---
 
@@ -128,23 +129,23 @@
 
 ---
 
-## Phase 3.1: Multi-Tenant Infrastructure Completion (HIGH PRIORITY ⏳)
+## Phase 3.1: Multi-Tenant Infrastructure Completion ✅ COMPLETED
 
 ### Core Multi-Tenant System
-- [ ] T052 Enhance Tenant model in backend/app/models/tenant.py: Add database_url encryption, validation, is_active checks
-- [ ] T053 Create TenantRegistry service in backend/app/services/tenant/registry.py: CRUD operations for tenant master registry, subdomain validation
-- [ ] T054 Implement subdomain→tenant lookup in backend/app/core/tenant.py: Replace demo hardcode with actual registry lookup
-- [ ] T055 Create tenant context middleware in backend/app/middleware/tenant_context.py: Extract subdomain from hostname, lookup tenant, inject into request.state
-- [ ] T056 Create dynamic DB connection manager in backend/app/core/db_manager.py: Per-tenant connection pools (max 10), 15-min credential cache, asyncpg
-- [ ] T057 Implement credential encryption in backend/app/core/security.py: AES-256 encrypt/decrypt for database_url and database_key
-- [ ] T058 Create auth middleware in backend/app/middleware/auth.py: Validate JWT, extract user and tenant, verify tenant_id matches request tenant
-- [ ] T059 Update JWT token generation in backend/app/core/security.py: Include tenant_id and subdomain claims in all tokens
-- [ ] T060 Add middleware to FastAPI app in backend/app/main.py: Register tenant_context middleware and auth middleware
-- [ ] T061 Create logging middleware in backend/app/middleware/logging.py: Log tenant_id, user_id, request path, response status, duration
+- [x] T052 Enhance Tenant model in backend/app/models/tenant.py: Add database_url encryption, validation, is_active checks
+- [x] T053 Create TenantRegistry service in backend/app/services/tenant/registry.py: CRUD operations for tenant master registry, subdomain validation
+- [x] T054 Implement subdomain→tenant lookup in backend/app/core/tenant.py: Replace demo hardcode with actual registry lookup
+- [x] T055 Create tenant context middleware in backend/app/middleware/tenant_context.py: Extract subdomain from hostname, lookup tenant, inject into request.state
+- [x] T056 Create dynamic DB connection manager in backend/app/core/db_manager.py: Per-tenant connection pools (max 10), 15-min credential cache, asyncpg
+- [x] T057 Implement credential encryption in backend/app/core/security.py: AES-256 encrypt/decrypt for database_url and database_key
+- [x] T058 Create auth middleware in backend/app/middleware/auth.py: Validate JWT, extract user and tenant, verify tenant_id matches request tenant
+- [x] T059 Update JWT token generation in backend/app/core/security.py: Include tenant_id and subdomain claims in all tokens
+- [x] T060 Add middleware to FastAPI app in backend/app/main.py: Register tenant_context middleware and auth middleware
+- [x] T061 Create logging middleware in backend/app/middleware/logging.py: Log tenant_id, user_id, request path, response status, duration
 
 ### Master Tenant Registry Database
-- [ ] T062 Create tenant registry initialization script: Set up master database connection, apply schema
-- [ ] T063 Seed demo tenant in registry: Add demo tenant to master registry with proper credentials (encrypted)
+- [x] T062 Create tenant registry initialization script: Set up master database connection, apply schema
+- [x] T063 Seed demo tenant in registry: Add demo tenant to master registry with proper credentials (encrypted)
 
 ---
 
@@ -496,9 +497,9 @@ Task: "Create Admin page in frontend/src/pages/Admin.tsx"
 
 ---
 
-**Completed**: 72/218 tasks (33%) ✅
-**Remaining**: 146/218 tasks (67%) ⏳
-**Estimated Remaining Timeline**: 8-12 weeks
-**Priority Order**: Multi-Tenant (T052-T063) → Tests (T064-T091) → Backend Features (T092-T139) → Frontend (T140-T183) → Polish (T184-T218)
+**Completed**: 112/218 tasks (51%) ✅
+**Remaining**: 106/218 tasks (49%) ⏳
+**Estimated Remaining Timeline**: 7-9 weeks
+**Priority Order**: Backend Features (T092-T139) → Frontend (T140-T183) → Polish (T184-T218)
 
 **Ready for implementation following TDD: Tests must fail before implementation begins.**

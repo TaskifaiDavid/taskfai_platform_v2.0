@@ -236,7 +236,7 @@ class TestRLSPolicyEnforcement:
         # This test verifies schema.sql contains RLS policies
 
         import os
-        schema_path = "/home/david/BIBBI_v2/backend/db/schema.sql"
+        schema_path = "/home/david/TaskifAI_platform_v2.0/backend/db/schema.sql"
 
         if os.path.exists(schema_path):
             with open(schema_path, 'r') as f:
