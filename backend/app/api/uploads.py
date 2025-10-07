@@ -48,7 +48,7 @@ async def upload_file(
 
     # Generate batch ID
     batch_id = str(uuid.uuid4())
-    user_id = current_user["id"]
+    user_id = current_user["user_id"]
 
     # Save file to temporary storage
     try:
@@ -64,14 +64,13 @@ async def upload_file(
     # Create upload batch record
     try:
         batch_data = {
-            "batch_id": batch_id,
-            "user_id": user_id,
-            "filename": file.filename,
-            "file_size": file_size,
+            "upload_batch_id": batch_id,
+            "uploader_user_id": user_id,
+            "original_filename": file.filename,
+            "file_size_bytes": file_size,
             "upload_mode": mode,
             "processing_status": "pending",
-            "uploaded_at": datetime.utcnow().isoformat(),
-            "file_path": str(file_path)
+            "upload_timestamp": datetime.utcnow().isoformat()
         }
 
         result = supabase.table("upload_batches").insert(batch_data).execute()
@@ -120,15 +119,15 @@ async def get_upload_batches(
     Returns:
         List of upload batches
     """
-    user_id = current_user["id"]
+    user_id = current_user["user_id"]
 
     try:
-        query = supabase.table("upload_batches").select("*").eq("user_id", user_id)
+        query = supabase.table("upload_batches").select("*").eq("uploader_user_id", user_id)
 
         if status:
             query = query.eq("processing_status", status)
 
-        query = query.order("uploaded_at", desc=True).range(offset, offset + limit - 1)
+        query = query.order("upload_timestamp", desc=True).range(offset, offset + limit - 1)
 
         result = query.execute()
 
@@ -159,10 +158,10 @@ async def get_upload_batch(
     Returns:
         Upload batch details
     """
-    user_id = current_user["id"]
+    user_id = current_user["user_id"]
 
     try:
-        result = supabase.table("upload_batches").select("*").eq("batch_id", batch_id).eq("user_id", user_id).execute()
+        result = supabase.table("upload_batches").select("*").eq("upload_batch_id", batch_id).eq("uploader_user_id", user_id).execute()
 
         if not result.data:
             raise HTTPException(status_code=404, detail="Batch not found")
@@ -195,11 +194,11 @@ async def delete_upload_batch(
     Returns:
         Deletion confirmation
     """
-    user_id = current_user["id"]
+    user_id = current_user["user_id"]
 
     try:
         # Delete from database
-        result = supabase.table("upload_batches").delete().eq("batch_id", batch_id).eq("user_id", user_id).execute()
+        result = supabase.table("upload_batches").delete().eq("upload_batch_id", batch_id).eq("uploader_user_id", user_id).execute()
 
         if not result.data:
             raise HTTPException(status_code=404, detail="Batch not found")

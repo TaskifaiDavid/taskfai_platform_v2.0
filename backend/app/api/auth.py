@@ -6,22 +6,23 @@ from datetime import datetime, timezone
 from typing import Annotated
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.core.dependencies import SupabaseClient
 from app.core.security import create_access_token, get_password_hash, verify_password
-from app.models.user import Token, UserCreate, UserLogin, UserResponse
+from app.models.user import AuthResponse, Token, UserCreate, UserLogin, UserResponse
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
 async def register(
     user: UserCreate,
+    request: Request,
     supabase: SupabaseClient
 ):
     """
-    Register a new user
+    Register a new user and return JWT token with user data
 
     - **email**: Valid email address
     - **password**: Minimum 8 characters
@@ -55,16 +56,36 @@ async def register(
             detail="Failed to create user"
         )
 
-    return UserResponse(**response.data[0])
+    created_user = response.data[0]
+
+    # Get tenant context from request state (set by TenantContextMiddleware)
+    tenant = request.state.tenant
+
+    # Create access token with tenant claims
+    access_token = create_access_token(
+        data={
+            "sub": created_user["user_id"],
+            "email": created_user["email"],
+            "role": created_user["role"]
+        },
+        tenant_id=tenant.tenant_id,
+        subdomain=tenant.subdomain
+    )
+
+    return AuthResponse(
+        user=UserResponse(**created_user),
+        access_token=access_token
+    )
 
 
-@router.post("/login", response_model=Token)
+@router.post("/login", response_model=AuthResponse)
 async def login(
     credentials: UserLogin,
+    request: Request,
     supabase: SupabaseClient
 ):
     """
-    Authenticate user and return JWT token
+    Authenticate user and return JWT token with user data
 
     - **email**: Registered email address
     - **password**: User password
@@ -87,16 +108,24 @@ async def login(
             detail="Incorrect email or password"
         )
 
-    # Create access token
+    # Get tenant context from request state (set by TenantContextMiddleware)
+    tenant = request.state.tenant
+
+    # Create access token with tenant claims
     access_token = create_access_token(
         data={
             "sub": user["user_id"],
             "email": user["email"],
             "role": user["role"]
-        }
+        },
+        tenant_id=tenant.tenant_id,
+        subdomain=tenant.subdomain
     )
 
-    return Token(access_token=access_token)
+    return AuthResponse(
+        user=UserResponse(**user),
+        access_token=access_token
+    )
 
 
 @router.post("/logout")
