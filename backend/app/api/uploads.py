@@ -131,10 +131,23 @@ async def get_upload_batches(
 
         result = query.execute()
 
+        # Transform field names to match frontend expectations
+        transformed_batches = []
+        for batch in result.data:
+            transformed = batch.copy()
+            # Map backend field names to frontend field names
+            if 'rows_total' in batch:
+                transformed['total_rows_parsed'] = batch['rows_total']
+            if 'rows_processed' in batch:
+                transformed['successful_inserts'] = batch['rows_processed']
+            if 'rows_failed' in batch:
+                transformed['failed_inserts'] = batch['rows_failed']
+            transformed_batches.append(transformed)
+
         return {
             "success": True,
-            "batches": result.data,
-            "count": len(result.data)
+            "batches": transformed_batches,
+            "count": len(transformed_batches)
         }
 
     except Exception as e:
@@ -166,15 +179,65 @@ async def get_upload_batch(
         if not result.data:
             raise HTTPException(status_code=404, detail="Batch not found")
 
+        # Transform field names to match frontend expectations
+        batch = result.data[0].copy()
+        if 'rows_total' in batch:
+            batch['total_rows_parsed'] = batch['rows_total']
+        if 'rows_processed' in batch:
+            batch['successful_inserts'] = batch['rows_processed']
+        if 'rows_failed' in batch:
+            batch['failed_inserts'] = batch['rows_failed']
+
         return {
             "success": True,
-            "batch": result.data[0]
+            "batch": batch
         }
 
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch batch: {str(e)}")
+
+
+@router.get("/uploads/{batch_id}/errors")
+async def get_upload_errors(
+    batch_id: str,
+    current_user = Depends(get_current_user),
+    supabase = Depends(get_supabase_client)
+):
+    """
+    Get error reports for a specific upload batch
+
+    Args:
+        batch_id: Batch identifier
+        current_user: Authenticated user
+        supabase: Supabase client
+
+    Returns:
+        List of error reports
+    """
+    user_id = current_user["user_id"]
+
+    try:
+        # Verify batch belongs to user
+        batch_result = supabase.table("upload_batches").select("upload_batch_id").eq("upload_batch_id", batch_id).eq("uploader_user_id", user_id).execute()
+
+        if not batch_result.data:
+            raise HTTPException(status_code=404, detail="Batch not found")
+
+        # Get error reports
+        errors_result = supabase.table("error_reports").select("*").eq("upload_batch_id", batch_id).order("row_number_in_file").execute()
+
+        return {
+            "success": True,
+            "errors": errors_result.data or [],
+            "count": len(errors_result.data) if errors_result.data else 0
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch errors: {str(e)}")
 
 
 @router.delete("/uploads/batches/{batch_id}")
@@ -215,3 +278,69 @@ async def delete_upload_batch(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete batch: {str(e)}")
+
+
+@router.post("/uploads/cleanup-stuck")
+async def cleanup_stuck_uploads(
+    current_user = Depends(get_current_user),
+    supabase = Depends(get_supabase_client)
+):
+    """
+    Clean up stuck pending uploads (older than 10 minutes)
+
+    Args:
+        current_user: Authenticated user
+        supabase: Supabase client
+
+    Returns:
+        Number of uploads cleaned up
+    """
+    user_id = current_user["user_id"]
+
+    try:
+        from datetime import datetime, timedelta
+
+        # Calculate cutoff time (10 minutes ago)
+        cutoff_time = datetime.now() - timedelta(minutes=10)
+
+        # Get all pending uploads for this user
+        result = supabase.table("upload_batches")\
+            .select("*")\
+            .eq("uploader_user_id", user_id)\
+            .eq("processing_status", "pending")\
+            .execute()
+
+        if not result.data:
+            return {
+                "success": True,
+                "cleaned_count": 0,
+                "message": "No stuck uploads found"
+            }
+
+        # Filter for stuck uploads (older than cutoff)
+        stuck_batches = []
+        for batch in result.data:
+            upload_time = datetime.fromisoformat(batch['upload_timestamp'].replace('Z', '+00:00'))
+            if upload_time.replace(tzinfo=None) < cutoff_time:
+                stuck_batches.append(batch['upload_batch_id'])
+
+        # Update all stuck batches to failed status
+        cleaned_count = 0
+        for batch_id in stuck_batches:
+            update_result = supabase.table("upload_batches").update({
+                "processing_status": "failed",
+                "error_summary": "Processing timeout - marked as failed during cleanup",
+                "processing_completed_at": datetime.now().isoformat()
+            }).eq("upload_batch_id", batch_id).execute()
+
+            if update_result.data:
+                cleaned_count += 1
+
+        return {
+            "success": True,
+            "cleaned_count": cleaned_count,
+            "message": f"Cleaned up {cleaned_count} stuck upload(s)"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to cleanup uploads: {str(e)}")

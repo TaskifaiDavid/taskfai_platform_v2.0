@@ -126,6 +126,13 @@
     font-feature-settings: 'rlig' 1, 'calt' 1;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* Global UI scale: 90% (10% smaller for better density) */
+    font-size: 90%;
+  }
+
+  /* Ensure full viewport coverage without whitespace gaps */
+  #root {
+    min-height: 100vh;
   }
 
   /* Typography Hierarchy */

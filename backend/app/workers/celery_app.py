@@ -22,7 +22,7 @@ celery_app.conf.update(
     task_track_started=True,
     task_time_limit=30 * 60,  # 30 minutes max per task
     task_soft_time_limit=25 * 60,  # Soft limit at 25 minutes
-    worker_prefetch_multiplier=1,
+    worker_prefetch_multiplier=4,  # Enables concurrent multi-file uploads (6 workers × 4 = 24 simultaneous tasks)
     worker_max_tasks_per_child=1000,
     task_acks_late=True,
     task_reject_on_worker_lost=True,

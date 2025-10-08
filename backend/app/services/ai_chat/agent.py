@@ -1,348 +1,264 @@
 """
-LangGraph SQL Agent for natural language to SQL conversion
+Hybrid SQL Agent for natural language to SQL conversion with Supabase execution.
+
+This module implements a hybrid architecture where:
+- OpenAI GPT generates SQL from natural language queries
+- Supabase executes queries via REST API (exec_sql RPC function)
+- Security validation ensures user_id filtering on all queries
+
+The agent prioritizes ecommerce_orders (D2C/online sales) over sellout_entries2 (B2B/offline)
+to ensure accurate results for users with primarily online sales data.
 """
 
-from typing import Dict, List, Any, Optional, Annotated
+from typing import Dict, List, Any, Optional
 from datetime import datetime
 import os
+import re
+import json
 
 from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.runnables import RunnablePassthrough
-from langgraph.graph import StateGraph, END
-from langgraph.graph.message import add_messages
-from langgraph.checkpoint.memory import MemorySaver
-from typing_extensions import TypedDict
 
-from .intent import IntentDetector
+from .intent import IntentDetector, QueryIntent
 from .security import QuerySecurityValidator
 
 
-class ChatState(TypedDict):
-    """State for chat conversation"""
-    messages: Annotated[List, add_messages]
-    user_id: str
-    session_id: Optional[str]
-    query_intent: Optional[str]
-    sql_query: Optional[str]
-    sql_result: Optional[Dict[str, Any]]
-    error: Optional[str]
+# Database schema for AI context
+DATABASE_SCHEMA = """
+Tables (in priority order for queries):
+
+1. ecommerce_orders: PRIMARY sales table (D2C/online sales data) - QUERY THIS FIRST
+   Columns: order_id, user_id, product_ean, functional_name, product_name, sales_eur,
+            quantity, cost_of_goods, stripe_fee, order_date, country, city,
+            utm_source, utm_medium, utm_campaign, device_type, reseller
+   Note: Contains functional_name directly - NO JOIN to products table needed
+
+2. sellout_entries2: B2B/offline sales data (may be empty for some users)
+   Columns: sale_id, user_id, product_id, reseller_id, functional_name, product_ean,
+            reseller, sales_eur, quantity, currency, month, year, created_at
+   Note: Requires JOIN to products table for product_name
+
+3. products: Product catalog (only needed for sellout_entries2 queries)
+   Columns: product_id, sku, product_name, product_ean, functional_name, category
+
+4. resellers: Reseller directory
+   Columns: reseller_id, name, country
+
+5. users: User accounts
+   Columns: user_id, email, full_name, role, tenant_id
+"""
 
 
-class SQLChatAgent:
+class SQLDatabaseAgent:
     """
-    LangGraph-based SQL chat agent with conversation memory
+    Hybrid SQL Agent: OpenAI generates SQL, Supabase MCP executes it
 
-    Workflow:
-    1. Detect intent from user query
-    2. Generate secure SQL query
-    3. Validate SQL for security
-    4. Execute query (caller responsibility)
-    5. Format results into natural language response
+    Features:
+    - Natural language to SQL conversion via OpenAI
+    - Query execution via Supabase MCP (REST API)
+    - Schema-aware query generation
+    - Security validation and user filtering
+    - No IPv6 connectivity required
     """
 
     def __init__(
         self,
+        project_id: str,
         openai_api_key: Optional[str] = None,
-        model: str = "gpt-4o",
+        model: str = "gpt-4o-mini",
         temperature: float = 0.0
     ):
         """
-        Initialize SQL chat agent
+        Initialize Hybrid SQL Agent
 
         Args:
-            openai_api_key: OpenAI API key (defaults to OPENAI_API_KEY env var)
-            model: OpenAI model to use
-            temperature: Temperature for generation
+            project_id: Supabase project ID
+            openai_api_key: OpenAI API key
+            model: OpenAI model name
+            temperature: LLM temperature
         """
+        self.project_id = project_id
         self.api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
+
         if not self.api_key:
             raise ValueError("OpenAI API key required")
 
+        # Initialize LLM
         self.llm = ChatOpenAI(
             api_key=self.api_key,
             model=model,
             temperature=temperature
         )
 
+        # Initialize supporting services
         self.intent_detector = IntentDetector()
         self.security_validator = QuerySecurityValidator()
-        self.memory = MemorySaver()
 
-        # Build the graph
-        self.graph = self._build_graph()
+    def _generate_sql(self, query: str, user_id: str) -> str:
+        """Generate SQL from natural language using OpenAI"""
 
-    def _build_graph(self) -> StateGraph:
-        """Build LangGraph workflow"""
-        workflow = StateGraph(ChatState)
+        system_prompt = f"""You are a SQL expert for a sales analytics platform.
 
-        # Add nodes
-        workflow.add_node("detect_intent", self._detect_intent_node)
-        workflow.add_node("generate_sql", self._generate_sql_node)
-        workflow.add_node("validate_sql", self._validate_sql_node)
-        workflow.add_node("format_response", self._format_response_node)
+{DATABASE_SCHEMA}
 
-        # Define edges
-        workflow.set_entry_point("detect_intent")
-        workflow.add_edge("detect_intent", "generate_sql")
-        workflow.add_edge("generate_sql", "validate_sql")
+CRITICAL RULES:
+1. ALWAYS filter by user_id='{user_id}' in WHERE clause for sellout_entries2 and ecommerce_orders
+2. QUERY ecommerce_orders FIRST - it's the PRIMARY sales table with most user data
+3. ecommerce_orders has functional_name built-in - NO JOIN to products table needed
+4. Only query sellout_entries2 if user explicitly asks for "B2B", "offline", or "reseller" data
+5. Use ONLY SELECT queries - NO INSERT, UPDATE, DELETE, DROP, ALTER, CREATE
+6. For time queries:
+   - ecommerce_orders: Use order_date column (PREFERRED)
+   - sellout_entries2: Use month/year columns
+7. Aggregate for totals, averages, summaries
+8. Use LIMIT (max 1000 rows)
+9. Handle NULL values with COALESCE
 
-        # Conditional edge after validation
-        workflow.add_conditional_edges(
-            "validate_sql",
-            self._should_format_response,
-            {
-                "format": "format_response",
-                "error": END
-            }
-        )
+Query Best Practices:
+- For general sales questions: Use ecommerce_orders
+- For product names: Use functional_name from ecommerce_orders (no join needed)
+- Meaningful column aliases
+- Logical ORDER BY (DESC for top results)
+- GROUP BY appropriate dimensions
+- Clear monetary formatting
 
-        workflow.add_edge("format_response", END)
+Return ONLY the SQL query, nothing else."""
 
-        return workflow.compile(checkpointer=self.memory)
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=query)
+        ]
 
-    def _detect_intent_node(self, state: ChatState) -> Dict[str, Any]:
-        """Detect user query intent"""
-        last_message = state["messages"][-1]
-        user_query = last_message.content if hasattr(last_message, 'content') else str(last_message)
+        response = self.llm.invoke(messages)
+        sql = response.content.strip()
 
-        intent = self.intent_detector.detect_intent(user_query)
+        # Clean SQL: remove markdown code blocks if present
+        sql = re.sub(r'```sql\s*|\s*```', '', sql).strip()
 
-        return {
-            "query_intent": intent.intent_type
-        }
+        # Remove trailing semicolon (exec_sql function doesn't support it)
+        sql = sql.rstrip(';').strip()
 
-    def _generate_sql_node(self, state: ChatState) -> Dict[str, Any]:
-        """Generate SQL query from natural language"""
-        last_message = state["messages"][-1]
-        user_query = last_message.content if hasattr(last_message, 'content') else str(last_message)
-        user_id = state["user_id"]
-        query_intent = state.get("query_intent", "GENERAL")
+        return sql
 
-        # SQL generation prompt with schema context
-        system_prompt = self._get_system_prompt(query_intent)
-
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", system_prompt),
-            MessagesPlaceholder(variable_name="chat_history"),
-            ("human", "{query}")
-        ])
-
-        # Get conversation history (last 5 messages)
-        chat_history = state["messages"][-6:-1] if len(state["messages"]) > 1 else []
-
-        # Generate SQL
-        chain = prompt | self.llm
-        response = chain.invoke({
-            "query": user_query,
-            "chat_history": chat_history,
-            "user_id": user_id
-        })
-
-        sql_query = self._extract_sql_from_response(response.content)
-
-        return {
-            "sql_query": sql_query
-        }
-
-    def _validate_sql_node(self, state: ChatState) -> Dict[str, Any]:
-        """Validate SQL for security"""
-        sql_query = state.get("sql_query")
-        user_id = state["user_id"]
-
-        if not sql_query:
-            return {"error": "No SQL query generated"}
-
-        # Validate with security validator
-        try:
-            validated_sql = self.security_validator.validate_and_inject_user_filter(
-                sql_query,
-                user_id
-            )
-            return {"sql_query": validated_sql, "error": None}
-        except ValueError as e:
-            return {"error": str(e)}
-
-    def _format_response_node(self, state: ChatState) -> Dict[str, Any]:
-        """Format SQL results into natural language response"""
-        sql_result = state.get("sql_result")
-        last_message = state["messages"][-1]
-        user_query = last_message.content if hasattr(last_message, 'content') else str(last_message)
-
-        if not sql_result:
-            response_text = "I couldn't find any data matching your query."
-        else:
-            # Format results into natural language
-            response_text = self._format_results_to_text(user_query, sql_result)
-
-        # Add AI response to messages
-        return {
-            "messages": [AIMessage(content=response_text)]
-        }
-
-    def _should_format_response(self, state: ChatState) -> str:
-        """Determine if we should format response or end with error"""
-        if state.get("error"):
-            return "error"
-        return "format"
-
-    def _get_system_prompt(self, query_intent: str) -> str:
-        """Get system prompt based on query intent"""
-        base_prompt = """You are a SQL query generator for a sales analytics platform.
-
-Database Schema:
-- sellout_entries2: Offline/B2B sales (product_ean, functional_name, reseller, sales_eur, quantity, month, year, user_id)
-- ecommerce_orders: Online/D2C sales (product_ean, functional_name, sales_eur, quantity, order_date, country, utm_source, user_id)
-- products: Product catalog (product_id, sku, product_name, product_ean, functional_name, category)
-- resellers: Reseller information (reseller_id, name, country)
-
-Important Rules:
-1. ALWAYS filter by user_id (it will be automatically injected)
-2. Use only SELECT queries - NO INSERT, UPDATE, DELETE, DROP, ALTER, CREATE
-3. Use parameterized queries with $1, $2, etc. for user inputs
-4. For date ranges, extract month/year from order_date for ecommerce_orders
-5. Join tables when needed for complete information
-6. Return clear, aggregated results
-
-Query Intent: {intent}
-
-Generate ONLY the SQL query, wrapped in ```sql``` code blocks."""
-
-        return base_prompt.format(intent=query_intent)
-
-    def _extract_sql_from_response(self, response: str) -> str:
-        """Extract SQL query from LLM response"""
-        # Look for SQL code block
-        if "```sql" in response:
-            start = response.find("```sql") + 6
-            end = response.find("```", start)
-            sql = response[start:end].strip()
-            return sql
-        elif "```" in response:
-            start = response.find("```") + 3
-            end = response.find("```", start)
-            sql = response[start:end].strip()
-            return sql
-        else:
-            # Assume entire response is SQL
-            return response.strip()
-
-    def _format_results_to_text(self, query: str, results: Dict[str, Any]) -> str:
-        """Format SQL results into natural language"""
-        if not results or not results.get("rows"):
-            return "No results found for your query."
-
-        rows = results["rows"]
-        columns = results.get("columns", [])
-
-        # Use LLM to format results
-        format_prompt = f"""Given this user query: "{query}"
-
-And these SQL results:
-Columns: {columns}
-Rows: {rows[:10]}  # Limit to first 10 for context
-
-Generate a clear, concise natural language response summarizing the results.
-Include key metrics and insights. If there are many rows, provide a summary."""
-
-        response = self.llm.invoke([HumanMessage(content=format_prompt)])
-        return response.content
-
-    def chat(
+    async def process_query(
         self,
         query: str,
         user_id: str,
+        mcp_execute_sql_fn: Any,
         session_id: Optional[str] = None,
-        sql_executor: Optional[callable] = None
+        intent: Optional[QueryIntent] = None
     ) -> Dict[str, Any]:
         """
-        Process chat query
+        Process natural language query using hybrid approach
 
         Args:
-            query: User's natural language query
-            user_id: User identifier
-            session_id: Session identifier for conversation memory
-            sql_executor: Function to execute SQL (signature: sql, user_id -> results)
+            query: User's natural language question
+            user_id: User identifier for filtering
+            mcp_execute_sql_fn: Supabase MCP execute_sql function
+            session_id: Session ID for conversation continuity
+            intent: Optional pre-detected intent
 
         Returns:
-            Dict with response, sql_query, intent, error
+            Dictionary with response, sql, data, session_id
         """
-        # Create initial state
-        initial_state = {
-            "messages": [HumanMessage(content=query)],
-            "user_id": user_id,
-            "session_id": session_id,
-            "query_intent": None,
-            "sql_query": None,
-            "sql_result": None,
-            "error": None
-        }
-
-        # Configure for conversation memory
-        config = {"configurable": {"thread_id": session_id or f"user_{user_id}"}}
-
-        # Run graph up to SQL validation
-        result = self.graph.invoke(initial_state, config)
-
-        # If validation passed and we have SQL, execute it
-        if not result.get("error") and result.get("sql_query") and sql_executor:
-            try:
-                sql_results = sql_executor(result["sql_query"], user_id)
-                result["sql_result"] = sql_results
-
-                # Continue graph to format response
-                result = self.graph.invoke(result, config)
-            except Exception as e:
-                result["error"] = f"Query execution error: {str(e)}"
-
-        # Extract final response
-        final_messages = result.get("messages", [])
-        final_response = final_messages[-1].content if final_messages else "I encountered an error processing your query."
-
-        return {
-            "response": final_response,
-            "sql_query": result.get("sql_query"),
-            "query_intent": result.get("query_intent"),
-            "error": result.get("error")
-        }
-
-    def get_conversation_history(
-        self,
-        session_id: str,
-        limit: int = 50
-    ) -> List[Dict[str, Any]]:
-        """
-        Retrieve conversation history for a session
-
-        Args:
-            session_id: Session identifier
-            limit: Maximum number of messages to retrieve
-
-        Returns:
-            List of messages
-        """
-        config = {"configurable": {"thread_id": session_id}}
-
         try:
-            # Get state from memory
-            state = self.graph.get_state(config)
-            messages = state.values.get("messages", [])
+            # Detect intent if not provided
+            if intent is None:
+                intent = self.intent_detector.detect_intent(query)
 
-            # Convert to dict format
-            history = []
-            for msg in messages[-limit:]:
-                role = "user" if isinstance(msg, HumanMessage) else "assistant"
-                history.append({
-                    "role": role,
-                    "content": msg.content,
-                    "timestamp": datetime.utcnow().isoformat()
-                })
+            # Generate SQL using OpenAI
+            sql_query = self._generate_sql(query, user_id)
 
-            return history
+            # Validate SQL security
+            try:
+                validated_sql = self.security_validator.validate_and_inject_user_filter(
+                    sql_query,
+                    user_id
+                )
+                sql_query = validated_sql
+            except ValueError as e:
+                return {
+                    "response": f"Security validation failed: {str(e)}",
+                    "sql": sql_query,
+                    "data": None,
+                    "session_id": session_id,
+                    "error": str(e)
+                }
+
+            # Execute SQL via Supabase MCP
+            result = await mcp_execute_sql_fn(
+                project_id=self.project_id,
+                query=sql_query
+            )
+
+            # Generate natural language response
+            response_text = await self._generate_response(query, sql_query, result)
+
+            return {
+                "response": response_text,
+                "sql": sql_query,
+                "data": result,
+                "session_id": session_id or f"session_{user_id}_{datetime.utcnow().timestamp()}"
+            }
+
+        except Exception as e:
+            return {
+                "response": f"I encountered an error: {str(e)}. Please try rephrasing your question.",
+                "sql": None,
+                "data": None,
+                "session_id": session_id,
+                "error": str(e)
+            }
+
+    async def _generate_response(self, query: str, sql: str, data: Any) -> str:
+        """Generate natural language response from query results"""
+
+        # Format data for LLM
+        data_str = json.dumps(data, indent=2) if data else "No results"
+
+        system_prompt = """You are a helpful sales analytics assistant.
+
+Given the user's question, the SQL query that was executed, and the results,
+provide a clear, concise natural language answer.
+
+Focus on:
+- Directly answering the user's question
+- Highlighting key insights from the data
+- Using business-friendly language (not technical SQL terms)
+- Formatting numbers clearly (e.g., €1,234.56)"""
+
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=f"""
+User Question: {query}
+
+SQL Query: {sql}
+
+Results: {data_str}
+
+Provide a clear answer:""")
+        ]
+
+        response = self.llm.invoke(messages)
+        return response.content.strip()
+
+    def get_schema_info(self) -> str:
+        """Get database schema information"""
+        return DATABASE_SCHEMA
+
+    async def test_connection(self, mcp_execute_sql_fn: Any) -> bool:
+        """Test database connection via MCP"""
+        try:
+            result = await mcp_execute_sql_fn(
+                project_id=self.project_id,
+                query="SELECT 1 as test"
+            )
+            return True
         except Exception:
-            return []
+            return False
 
 
-# Alias for backwards compatibility
-SQLAgent = SQLChatAgent
+# Backward compatibility aliases
+SQLAgent = SQLDatabaseAgent
+SQLChatAgent = SQLDatabaseAgent

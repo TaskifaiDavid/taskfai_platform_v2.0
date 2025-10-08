@@ -4,10 +4,12 @@ AI Chat endpoints for natural language querying
 
 from typing import Annotated
 from uuid import UUID
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.core.dependencies import get_current_user, get_tenant_db_pool
+from app.core.dependencies import get_current_user, get_tenant_context, CurrentTenant
+from app.core.config import settings
 from app.models.user import UserResponse
 from app.models.conversation import (
     ChatQueryRequest,
@@ -15,21 +17,53 @@ from app.models.conversation import (
     ConversationResponse,
     ConversationList
 )
-from app.services.ai_chat.agent import SQLAgent
+from app.services.ai_chat.agent import SQLDatabaseAgent
 from app.services.ai_chat.intent import IntentDetector
 from app.services.ai_chat.security import SQLSecurityValidator
 from app.services.ai_chat.memory import ConversationMemoryService
-import asyncpg
 
 
 router = APIRouter(prefix="/chat", tags=["AI Chat"])
 
 
-@router.post("/query", response_model=ChatQueryResponse, status_code=status.HTTP_200_OK)
+# Supabase project ID for MCP operations
+SUPABASE_PROJECT_ID = "afualzsndhnbsuruwese"
+
+
+async def execute_sql_via_mcp(project_id: str, query: str) -> list:
+    """
+    Execute SQL query via Supabase REST API (using exec_sql RPC function)
+
+    Args:
+        project_id: Supabase project ID (unused, kept for compatibility)
+        query: SQL SELECT query to execute
+
+    Returns:
+        Query results as list of dictionaries
+    """
+    from supabase import create_client
+
+    try:
+        # Create Supabase client (uses HTTPS with IPv4)
+        supabase = create_client(
+            settings.supabase_url,
+            settings.supabase_service_key
+        )
+
+        # Execute query via the exec_sql RPC function we created
+        result = supabase.rpc('exec_sql', {'query': query}).execute()
+
+        # Return the data (already in list format from jsonb_agg)
+        return result.data if result.data else []
+    except Exception as e:
+        raise ValueError(f"SQL execution failed: {str(e)}")
+
+
+@router.post("/query", status_code=status.HTTP_200_OK)
 async def query_chat(
     request: ChatQueryRequest,
     current_user: Annotated[UserResponse, Depends(get_current_user)],
-    db_pool: Annotated[asyncpg.Pool, Depends(get_tenant_db_pool)]
+    tenant_context: CurrentTenant
 ):
     """
     Send natural language query to AI chat agent
@@ -39,58 +73,55 @@ async def query_chat(
 
     The agent will:
     1. Detect query intent
-    2. Generate secure SQL query
-    3. Execute query with RLS filtering
+    2. Generate secure SQL query using OpenAI
+    3. Execute query via Supabase MCP (REST API)
     4. Return results in natural language
-    5. Save conversation history
     """
     try:
-        # Initialize services
-        agent = SQLAgent(db_pool)
-        intent_detector = IntentDetector()
-        memory_service = ConversationMemoryService(db_pool)
+        # Initialize hybrid SQL agent
+        agent = SQLDatabaseAgent(
+            project_id=SUPABASE_PROJECT_ID,
+            openai_api_key=settings.openai_api_key,
+            model=settings.openai_model
+        )
 
         # Detect intent
-        intent = intent_detector.detect_intent(request.message)
+        intent_detector = IntentDetector()
+        intent = intent_detector.detect_intent(request.query)
 
-        # Generate and execute query via agent
+        # Process query with agent (uses Supabase MCP for execution)
         result = await agent.process_query(
-            query=request.message,
-            user_id=UUID(current_user.user_id),
+            query=request.query,
+            user_id=str(current_user["user_id"]),
+            mcp_execute_sql_fn=execute_sql_via_mcp,
             session_id=request.session_id,
             intent=intent
         )
 
-        # Save conversation
-        conversation = await memory_service.save_conversation(
-            user_id=UUID(current_user.user_id),
-            session_id=request.session_id or result.get('session_id'),
-            user_message=request.message,
-            ai_response=result['response'],
-            sql_generated=result.get('sql'),
-            intent=intent.dict()
-        )
+        # Return response matching frontend expectations
+        return {
+            "response": result['response'],
+            "sql_generated": result.get('sql'),
+            "session_id": result.get('session_id')
+        }
 
-        return ChatQueryResponse(
-            response=result['response'],
-            sql_query=result.get('sql'),
-            data=result.get('data'),
-            intent=intent,
-            session_id=result.get('session_id'),
-            conversation_id=str(conversation.conversation_id)
+    except ValueError as e:
+        # Configuration or validation errors
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
         )
-
     except Exception as e:
+        # General errors
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Query processing failed: {str(e)}"
         )
 
 
-@router.get("/history", response_model=ConversationList, status_code=status.HTTP_200_OK)
+@router.get("/history")
 async def get_chat_history(
     current_user: Annotated[UserResponse, Depends(get_current_user)],
-    db_pool: Annotated[asyncpg.Pool, Depends(get_tenant_db_pool)],
     session_id: str = None,
     limit: int = 50,
     offset: int = 0
@@ -102,36 +133,20 @@ async def get_chat_history(
     - **limit**: Number of conversations to return (max 100)
     - **offset**: Pagination offset
 
-    Returns list of conversations with messages
+    Returns conversation with messages
     """
-    try:
-        memory_service = ConversationMemoryService(db_pool)
-
-        conversations = await memory_service.get_conversation_history(
-            user_id=UUID(current_user.user_id),
-            session_id=session_id,
-            limit=min(limit, 100),
-            offset=offset
-        )
-
-        return ConversationList(
-            conversations=conversations,
-            total=len(conversations),
-            limit=limit,
-            offset=offset
-        )
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to retrieve history: {str(e)}"
-        )
+    # Conversation history intentionally disabled - not implemented in current architecture
+    return {
+        "conversation_id": session_id or "temp",
+        "session_id": session_id or "temp",
+        "messages": [],
+        "created_at": datetime.utcnow().isoformat()
+    }
 
 
 @router.delete("/history", status_code=status.HTTP_204_NO_CONTENT)
 async def clear_chat_history(
     current_user: Annotated[UserResponse, Depends(get_current_user)],
-    db_pool: Annotated[asyncpg.Pool, Depends(get_tenant_db_pool)],
     session_id: str = None
 ):
     """
@@ -141,44 +156,18 @@ async def clear_chat_history(
 
     This will permanently delete conversation history.
     """
-    try:
-        memory_service = ConversationMemoryService(db_pool)
-
-        await memory_service.clear_history(
-            user_id=UUID(current_user.user_id),
-            session_id=session_id
-        )
-
-        return None
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to clear history: {str(e)}"
-        )
+    # Conversation history intentionally disabled - not implemented in current architecture
+    return None
 
 
 @router.get("/sessions", response_model=list[dict], status_code=status.HTTP_200_OK)
 async def list_chat_sessions(
-    current_user: Annotated[UserResponse, Depends(get_current_user)],
-    db_pool: Annotated[asyncpg.Pool, Depends(get_tenant_db_pool)]
+    current_user: Annotated[UserResponse, Depends(get_current_user)]
 ):
     """
     List all chat sessions for current user
 
     Returns list of unique session IDs with metadata (message count, last activity)
     """
-    try:
-        memory_service = ConversationMemoryService(db_pool)
-
-        sessions = await memory_service.list_sessions(
-            user_id=UUID(current_user.user_id)
-        )
-
-        return sessions
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list sessions: {str(e)}"
-        )
+    # Conversation history intentionally disabled - not implemented in current architecture
+    return []

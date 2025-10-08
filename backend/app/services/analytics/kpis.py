@@ -1,29 +1,32 @@
 """
-KPI calculator for analytics dashboard
+KPI calculator for analytics dashboard.
+
+IMPORTANT: This service uses Supabase service_key which bypasses Row-Level Security (RLS).
+All queries MUST explicitly filter by user_id to ensure proper data isolation.
+Without explicit user_id filtering, queries will return data across all tenants.
 """
 
 from typing import Dict, Any, Optional
 from datetime import date, datetime
 from decimal import Decimal
-import asyncpg
-from uuid import UUID
+from supabase import Client
 
 
 class KPICalculator:
     """Calculate key performance indicators for sales analytics"""
 
-    def __init__(self, db_pool: asyncpg.Pool):
+    def __init__(self, supabase: Client):
         """
         Initialize KPI calculator
 
         Args:
-            db_pool: Database connection pool for tenant database
+            supabase: Supabase client for database operations
         """
-        self.db_pool = db_pool
+        self.supabase = supabase
 
-    async def calculate_kpis(
+    def calculate_kpis(
         self,
-        user_id: UUID,
+        user_id: str,
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
         channel: Optional[str] = None  # 'offline', 'online', or None for all
@@ -40,142 +43,157 @@ class KPICalculator:
         Returns:
             Dictionary with KPI metrics
         """
-        async with self.db_pool.acquire() as conn:
-            # Set user context for RLS
-            await conn.execute("SET LOCAL app.current_user_id = $1", str(user_id))
+        # Calculate offline (B2B) KPIs
+        offline_kpis = self._calculate_offline_kpis(
+            start_date, end_date, user_id
+        ) if channel in (None, 'offline') else {}
 
-            # Calculate offline (B2B) KPIs
-            offline_kpis = await self._calculate_offline_kpis(
-                conn, start_date, end_date
-            ) if channel in (None, 'offline') else {}
+        # Calculate online (D2C) KPIs
+        online_kpis = self._calculate_online_kpis(
+            start_date, end_date, user_id
+        ) if channel in (None, 'online') else {}
 
-            # Calculate online (D2C) KPIs
-            online_kpis = await self._calculate_online_kpis(
-                conn, start_date, end_date
-            ) if channel in (None, 'online') else {}
+        # Calculate combined KPIs
+        total_revenue = Decimal(0)
+        total_units = 0
+        avg_price = Decimal(0)
 
-            # Calculate combined KPIs
-            total_revenue = Decimal(0)
-            total_units = 0
+        if offline_kpis:
+            total_revenue += offline_kpis.get('total_revenue', Decimal(0))
+            total_units += offline_kpis.get('total_units', 0)
 
-            if offline_kpis:
-                total_revenue += offline_kpis.get('total_revenue', Decimal(0))
-                total_units += offline_kpis.get('total_units', 0)
+        if online_kpis:
+            total_revenue += online_kpis.get('total_revenue', Decimal(0))
+            total_units += online_kpis.get('total_units', 0)
 
-            if online_kpis:
-                total_revenue += online_kpis.get('total_revenue', Decimal(0))
-                total_units += online_kpis.get('total_units', 0)
+        if total_units > 0:
+            avg_price = total_revenue / total_units
 
-            return {
-                'total_revenue': float(total_revenue),
-                'total_units': total_units,
-                'average_order_value': float(total_revenue / total_units) if total_units > 0 else 0,
-                'offline': offline_kpis,
-                'online': online_kpis,
-                'date_range': {
-                    'start': start_date.isoformat() if start_date else None,
-                    'end': end_date.isoformat() if end_date else None
-                }
+        return {
+            'total_revenue': float(total_revenue),
+            'total_units': total_units,
+            'avg_price': float(avg_price),
+            'average_order_value': float(avg_price),
+            'offline': offline_kpis,
+            'online': online_kpis,
+            'top_resellers': [],  # Placeholder
+            'date_range': {
+                'start': start_date.isoformat() if start_date else None,
+                'end': end_date.isoformat() if end_date else None
             }
+        }
 
-    async def _calculate_offline_kpis(
+    def _calculate_offline_kpis(
         self,
-        conn: asyncpg.Connection,
         start_date: Optional[date],
-        end_date: Optional[date]
+        end_date: Optional[date],
+        user_id: str
     ) -> Dict[str, Any]:
         """Calculate offline (B2B) sales KPIs"""
 
-        # Build date filter
-        date_filter = ""
-        params = []
+        # Query sellout_entries2 table with user_id filter
+        query = self.supabase.table("sellout_entries2").select("sales_eur,quantity,reseller_id,product_id,month,year").eq("user_id", user_id)
 
+        # Apply date filters if provided
+        # Note: Supabase REST API doesn't support complex date operations easily
+        # So we'll fetch and filter in Python
+        result = query.execute()
+
+        if not result.data:
+            return {
+                'transaction_count': 0,
+                'total_revenue': Decimal(0),
+                'total_units': 0,
+                'avg_transaction_value': 0,
+                'unique_resellers': 0,
+                'unique_products': 0
+            }
+
+        # Filter by date range if provided
+        records = result.data
         if start_date and end_date:
-            # Convert month/year to date range
-            date_filter = """
-                AND (
-                    make_date(year, month, 1) >= $1
-                    AND make_date(year, month, 1) <= $2
-                )
-            """
-            params = [start_date, end_date]
+            filtered = []
+            for r in records:
+                if r.get('year') and r.get('month'):
+                    record_date = date(r['year'], r['month'], 1)
+                    if start_date <= record_date <= end_date:
+                        filtered.append(r)
+            records = filtered
 
-        query = f"""
-            SELECT
-                COUNT(*) as transaction_count,
-                SUM(sales_eur) as total_revenue,
-                SUM(quantity) as total_units,
-                AVG(sales_eur) as avg_transaction_value,
-                COUNT(DISTINCT reseller_id) as unique_resellers,
-                COUNT(DISTINCT product_id) as unique_products
-            FROM sellout_entries2
-            WHERE 1=1 {date_filter}
-        """
-
-        row = await conn.fetchrow(query, *params)
+        # Calculate aggregates
+        total_revenue = sum(Decimal(str(r.get('sales_eur', 0) or 0)) for r in records)
+        total_units = sum(int(r.get('quantity', 0) or 0) for r in records)
+        unique_resellers = len(set(r.get('reseller_id') for r in records if r.get('reseller_id')))
+        unique_products = len(set(r.get('product_id') for r in records if r.get('product_id')))
 
         return {
-            'transaction_count': row['transaction_count'] or 0,
-            'total_revenue': row['total_revenue'] or Decimal(0),
-            'total_units': row['total_units'] or 0,
-            'avg_transaction_value': float(row['avg_transaction_value'] or 0),
-            'unique_resellers': row['unique_resellers'] or 0,
-            'unique_products': row['unique_products'] or 0
+            'transaction_count': len(records),
+            'total_revenue': total_revenue,
+            'total_units': total_units,
+            'avg_transaction_value': float(total_revenue / len(records)) if records else 0,
+            'unique_resellers': unique_resellers,
+            'unique_products': unique_products
         }
 
-    async def _calculate_online_kpis(
+    def _calculate_online_kpis(
         self,
-        conn: asyncpg.Connection,
         start_date: Optional[date],
-        end_date: Optional[date]
+        end_date: Optional[date],
+        user_id: str
     ) -> Dict[str, Any]:
         """Calculate online (D2C) sales KPIs"""
 
-        # Build date filter
-        date_filter = ""
-        params = []
+        # Query ecommerce_orders table with user_id filter
+        query = self.supabase.table("ecommerce_orders").select("sales_eur,quantity,cost_of_goods,stripe_fee,country,order_date").eq("user_id", user_id)
 
-        if start_date and end_date:
-            date_filter = "AND order_date >= $1 AND order_date <= $2"
-            params = [start_date, end_date]
+        # Apply date filters if provided
+        if start_date:
+            query = query.gte("order_date", start_date.isoformat())
+        if end_date:
+            query = query.lte("order_date", end_date.isoformat())
 
-        query = f"""
-            SELECT
-                COUNT(*) as order_count,
-                SUM(sales_eur) as total_revenue,
-                SUM(quantity) as total_units,
-                AVG(sales_eur) as avg_order_value,
-                SUM(cost_of_goods) as total_cogs,
-                SUM(stripe_fee) as total_fees,
-                COUNT(DISTINCT country) as unique_countries
-            FROM ecommerce_orders
-            WHERE 1=1 {date_filter}
-        """
+        result = query.execute()
 
-        row = await conn.fetchrow(query, *params)
+        if not result.data:
+            return {
+                'order_count': 0,
+                'total_revenue': Decimal(0),
+                'total_units': 0,
+                'avg_order_value': 0,
+                'total_cogs': Decimal(0),
+                'total_fees': Decimal(0),
+                'gross_profit': 0,
+                'profit_margin': 0,
+                'unique_countries': 0
+            }
 
-        total_revenue = row['total_revenue'] or Decimal(0)
-        total_cogs = row['total_cogs'] or Decimal(0)
-        total_fees = row['total_fees'] or Decimal(0)
+        records = result.data
+
+        # Calculate aggregates
+        total_revenue = sum(Decimal(str(r.get('sales_eur', 0) or 0)) for r in records)
+        total_units = sum(int(r.get('quantity', 0) or 0) for r in records)
+        total_cogs = sum(Decimal(str(r.get('cost_of_goods', 0) or 0)) for r in records)
+        total_fees = sum(Decimal(str(r.get('stripe_fee', 0) or 0)) for r in records)
+        unique_countries = len(set(r.get('country') for r in records if r.get('country')))
 
         gross_profit = total_revenue - total_cogs - total_fees
         profit_margin = (gross_profit / total_revenue * 100) if total_revenue > 0 else 0
 
         return {
-            'order_count': row['order_count'] or 0,
+            'order_count': len(records),
             'total_revenue': total_revenue,
-            'total_units': row['total_units'] or 0,
-            'avg_order_value': float(row['avg_order_value'] or 0),
+            'total_units': total_units,
+            'avg_order_value': float(total_revenue / len(records)) if records else 0,
             'total_cogs': total_cogs,
             'total_fees': total_fees,
             'gross_profit': float(gross_profit),
             'profit_margin': float(profit_margin),
-            'unique_countries': row['unique_countries'] or 0
+            'unique_countries': unique_countries
         }
 
-    async def get_top_products(
+    def get_top_products(
         self,
-        user_id: UUID,
+        user_id: str,
         limit: int = 10,
         channel: Optional[str] = None,
         start_date: Optional[date] = None,
@@ -194,120 +212,114 @@ class KPICalculator:
         Returns:
             List of top products with metrics
         """
-        async with self.db_pool.acquire() as conn:
-            await conn.execute("SET LOCAL app.current_user_id = $1", str(user_id))
+        if channel == 'offline' or channel is None:
+            offline_top = self._get_top_offline_products(
+                limit, start_date, end_date, user_id
+            )
+        else:
+            offline_top = []
 
-            if channel == 'offline' or channel is None:
-                offline_top = await self._get_top_offline_products(
-                    conn, limit, start_date, end_date
-                )
-            else:
-                offline_top = []
+        if channel == 'online' or channel is None:
+            online_top = self._get_top_online_products(
+                limit, start_date, end_date, user_id
+            )
+        else:
+            online_top = []
 
-            if channel == 'online' or channel is None:
-                online_top = await self._get_top_online_products(
-                    conn, limit, start_date, end_date
-                )
-            else:
-                online_top = []
+        # Combine and sort
+        all_products = offline_top + online_top
+        all_products.sort(key=lambda x: x['revenue'], reverse=True)
 
-            # Combine and sort
-            all_products = offline_top + online_top
-            all_products.sort(key=lambda x: x['revenue'], reverse=True)
+        return all_products[:limit]
 
-            return all_products[:limit]
-
-    async def _get_top_offline_products(
+    def _get_top_offline_products(
         self,
-        conn: asyncpg.Connection,
         limit: int,
         start_date: Optional[date],
-        end_date: Optional[date]
+        end_date: Optional[date],
+        user_id: str
     ) -> list[Dict[str, Any]]:
         """Get top offline products"""
 
-        date_filter = ""
-        params = [limit]
+        # Query sellout_entries2 with user_id filter
+        query = self.supabase.table("sellout_entries2").select("functional_name,product_ean,sales_eur,quantity,month,year").eq("user_id", user_id)
+        result = query.execute()
 
+        if not result.data:
+            return []
+
+        # Filter by date if needed
+        records = result.data
         if start_date and end_date:
-            date_filter = """
-                AND (
-                    make_date(year, month, 1) >= $2
-                    AND make_date(year, month, 1) <= $3
-                )
-            """
-            params = [limit, start_date, end_date]
+            filtered = []
+            for r in records:
+                if r.get('year') and r.get('month'):
+                    record_date = date(r['year'], r['month'], 1)
+                    if start_date <= record_date <= end_date:
+                        filtered.append(r)
+            records = filtered
 
-        query = f"""
-            SELECT
-                functional_name,
-                product_ean,
-                SUM(sales_eur) as revenue,
-                SUM(quantity) as units,
-                COUNT(*) as transactions,
-                'offline' as channel
-            FROM sellout_entries2
-            WHERE 1=1 {date_filter}
-            GROUP BY functional_name, product_ean
-            ORDER BY revenue DESC
-            LIMIT $1
-        """
+        # Group by product
+        products = {}
+        for r in records:
+            key = (r.get('functional_name'), r.get('product_ean'))
+            if key not in products:
+                products[key] = {
+                    'product_name': r.get('functional_name', 'Unknown'),
+                    'product_ean': r.get('product_ean', ''),
+                    'revenue': 0,
+                    'units': 0,
+                    'transactions': 0,
+                    'channel': 'offline'
+                }
+            products[key]['revenue'] += float(r.get('sales_eur', 0) or 0)
+            products[key]['units'] += int(r.get('quantity', 0) or 0)
+            products[key]['transactions'] += 1
 
-        rows = await conn.fetch(query, *params)
+        # Sort by revenue and return top
+        sorted_products = sorted(products.values(), key=lambda x: x['revenue'], reverse=True)
+        return sorted_products[:limit]
 
-        return [
-            {
-                'product_name': row['functional_name'],
-                'product_ean': row['product_ean'],
-                'revenue': float(row['revenue']),
-                'units': row['units'],
-                'transactions': row['transactions'],
-                'channel': row['channel']
-            }
-            for row in rows
-        ]
-
-    async def _get_top_online_products(
+    def _get_top_online_products(
         self,
-        conn: asyncpg.Connection,
         limit: int,
         start_date: Optional[date],
-        end_date: Optional[date]
+        end_date: Optional[date],
+        user_id: str
     ) -> list[Dict[str, Any]]:
         """Get top online products"""
 
-        date_filter = ""
-        params = [limit]
+        # Query ecommerce_orders with user_id filter
+        query = self.supabase.table("ecommerce_orders").select("functional_name,product_ean,sales_eur,quantity,order_date").eq("user_id", user_id)
 
-        if start_date and end_date:
-            date_filter = "AND order_date >= $2 AND order_date <= $3"
-            params = [limit, start_date, end_date]
+        # Apply date filters
+        if start_date:
+            query = query.gte("order_date", start_date.isoformat())
+        if end_date:
+            query = query.lte("order_date", end_date.isoformat())
 
-        query = f"""
-            SELECT
-                functional_name,
-                product_ean,
-                SUM(sales_eur) as revenue,
-                SUM(quantity) as units,
-                COUNT(*) as orders,
-                'online' as channel
-            FROM ecommerce_orders
-            WHERE 1=1 {date_filter}
-            GROUP BY functional_name, product_ean
-            ORDER BY revenue DESC
-            LIMIT $1
-        """
+        result = query.execute()
 
-        rows = await conn.fetch(query, *params)
+        if not result.data:
+            return []
 
-        return [
-            {
-                'product_name': row['functional_name'],
-                'product_ean': row['product_ean'],
-                'revenue': float(row['revenue']),
-                'units': row['units'],
-                'transactions': row['orders'],
-                'channel': row['channel']
-            }
-            for row in rows
-        ]
+        # Group by product
+        products = {}
+        for r in result.data:
+            key = (r.get('functional_name'), r.get('product_ean'))
+            if key not in products:
+                products[key] = {
+                    'product_name': r.get('functional_name', 'Unknown'),
+                    'product_ean': r.get('product_ean', ''),
+                    'revenue': 0,
+                    'units': 0,
+                    'transactions': 0,
+                    'channel': 'online'
+                }
+            products[key]['revenue'] += float(r.get('sales_eur', 0) or 0)
+            products[key]['units'] += int(r.get('quantity', 0) or 0)
+            products[key]['transactions'] += 1
+
+        # Sort by revenue and return top
+        sorted_products = sorted(products.values(), key=lambda x: x['revenue'], reverse=True)
+        return sorted_products[:limit]

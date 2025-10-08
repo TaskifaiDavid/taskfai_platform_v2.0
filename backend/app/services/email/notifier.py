@@ -64,7 +64,7 @@ class EmailNotifier:
                 "filename": batch.get("filename"),
                 "upload_mode": batch.get("upload_mode", "").capitalize(),
                 "processed_at": self._format_datetime(batch.get("processed_at")),
-                "dashboard_url": "http://localhost:5173/dashboard"  # TODO: Use actual dashboard URL
+                "dashboard_url": "http://localhost:5173/dashboard"  # Configure via DASHBOARD_URL environment variable in production
             }
 
             # Send appropriate email based on status

@@ -4,17 +4,16 @@ Analytics endpoints for KPIs, sales data, and report generation
 
 from typing import Annotated, Optional
 from datetime import date
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from fastapi.responses import Response
+from supabase import Client
 
 from app.core.dependencies import get_current_user, get_tenant_db_pool
 from app.models.user import UserResponse
 from app.services.analytics.kpis import KPICalculator
 from app.services.analytics.sales import SalesAggregator
 from app.workers.report_generator import ReportGenerator
-import asyncpg
 
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
@@ -23,7 +22,7 @@ router = APIRouter(prefix="/analytics", tags=["Analytics"])
 @router.get("/kpis", response_model=dict, status_code=status.HTTP_200_OK)
 async def get_kpis(
     current_user: Annotated[UserResponse, Depends(get_current_user)],
-    db_pool: Annotated[asyncpg.Pool, Depends(get_tenant_db_pool)],
+    supabase: Annotated[Client, Depends(get_tenant_db_pool)],
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     channel: Optional[str] = None
@@ -43,19 +42,20 @@ async def get_kpis(
     - Top products
     """
     try:
-        kpi_calculator = KPICalculator(db_pool)
+        from supabase import Client
+        kpi_calculator = KPICalculator(supabase)
 
         # Get main KPIs
-        kpis = await kpi_calculator.calculate_kpis(
-            user_id=UUID(current_user["user_id"]),
+        kpis = kpi_calculator.calculate_kpis(
+            user_id=current_user["user_id"],
             start_date=start_date,
             end_date=end_date,
             channel=channel
         )
 
         # Get top products
-        top_products = await kpi_calculator.get_top_products(
-            user_id=UUID(current_user["user_id"]),
+        top_products = kpi_calculator.get_top_products(
+            user_id=current_user["user_id"],
             limit=10,
             channel=channel,
             start_date=start_date,
@@ -76,7 +76,7 @@ async def get_kpis(
 @router.get("/sales", response_model=dict, status_code=status.HTTP_200_OK)
 async def get_sales_data(
     current_user: Annotated[UserResponse, Depends(get_current_user)],
-    db_pool: Annotated[asyncpg.Pool, Depends(get_tenant_db_pool)],
+    supabase: Annotated[Client, Depends(get_tenant_db_pool)],
     channel: str = 'all',
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
@@ -101,10 +101,10 @@ async def get_sales_data(
     Returns paginated sales data with filters applied
     """
     try:
-        sales_aggregator = SalesAggregator(db_pool)
+        sales_aggregator = SalesAggregator(supabase)
 
-        sales_data = await sales_aggregator.get_sales_data(
-            user_id=UUID(current_user["user_id"]),
+        sales_data = sales_aggregator.get_sales_data(
+            user_id=current_user["user_id"],
             channel=channel,
             start_date=start_date,
             end_date=end_date,
@@ -127,7 +127,7 @@ async def get_sales_data(
 @router.get("/sales/summary", response_model=list, status_code=status.HTTP_200_OK)
 async def get_sales_summary(
     current_user: Annotated[UserResponse, Depends(get_current_user)],
-    db_pool: Annotated[asyncpg.Pool, Depends(get_tenant_db_pool)],
+    supabase: Annotated[Client, Depends(get_tenant_db_pool)],
     group_by: str = 'month',
     channel: str = 'all',
     start_date: Optional[date] = None,
@@ -150,10 +150,10 @@ async def get_sales_summary(
                 detail="Invalid group_by parameter. Must be one of: month, product, reseller, country"
             )
 
-        sales_aggregator = SalesAggregator(db_pool)
+        sales_aggregator = SalesAggregator(supabase)
 
-        summary = await sales_aggregator.get_sales_summary(
-            user_id=UUID(current_user["user_id"]),
+        summary = sales_aggregator.get_sales_summary(
+            user_id=current_user["user_id"],
             group_by=group_by,
             channel=channel,
             start_date=start_date,
@@ -174,7 +174,7 @@ async def get_sales_summary(
 @router.post("/export", response_model=dict, status_code=status.HTTP_202_ACCEPTED)
 async def export_report(
     current_user: Annotated[UserResponse, Depends(get_current_user)],
-    db_pool: Annotated[asyncpg.Pool, Depends(get_tenant_db_pool)],
+    supabase: Annotated[Client, Depends(get_tenant_db_pool)],
     background_tasks: BackgroundTasks,
     format: str = 'pdf',
     channel: str = 'all',
@@ -210,9 +210,9 @@ async def export_report(
         # For now, return task_id and generate synchronously
         background_tasks.add_task(
             _generate_report_task,
-            db_pool,
-            UUID(current_user.user_id),
-            current_user.email,
+            supabase,
+            current_user["user_id"],
+            current_user.get("email", "user@example.com"),
             format,
             channel,
             start_date,
@@ -240,7 +240,7 @@ async def export_report(
 async def download_report(
     format: str,
     current_user: Annotated[UserResponse, Depends(get_current_user)],
-    db_pool: Annotated[asyncpg.Pool, Depends(get_tenant_db_pool)],
+    supabase: Annotated[Client, Depends(get_tenant_db_pool)],
     channel: str = 'all',
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
@@ -266,10 +266,10 @@ async def download_report(
                 detail="Invalid format. Must be one of: pdf, csv, excel"
             )
 
-        report_generator = ReportGenerator(db_pool)
+        report_generator = ReportGenerator(supabase)
 
         report_bytes = await report_generator.generate_report(
-            user_id=UUID(current_user["user_id"]),
+            user_id=current_user["user_id"],
             format=format,
             channel=channel,
             start_date=start_date,
@@ -311,8 +311,8 @@ async def download_report(
 
 
 async def _generate_report_task(
-    db_pool: asyncpg.Pool,
-    user_id: UUID,
+    supabase: Client,
+    user_id: str,
     user_email: str,
     format: str,
     channel: str,
@@ -323,7 +323,7 @@ async def _generate_report_task(
 ):
     """Background task for report generation and email"""
     try:
-        report_generator = ReportGenerator(db_pool)
+        report_generator = ReportGenerator(supabase)
 
         report_bytes = await report_generator.generate_report(
             user_id=user_id,

@@ -5,25 +5,24 @@ Sales data aggregator with filtering and pagination
 from typing import Dict, List, Any, Optional
 from datetime import date, datetime
 from decimal import Decimal
-import asyncpg
-from uuid import UUID
+from supabase import Client
 
 
 class SalesAggregator:
     """Aggregate and filter sales data with pagination"""
 
-    def __init__(self, db_pool: asyncpg.Pool):
+    def __init__(self, supabase: Client):
         """
         Initialize sales aggregator
 
         Args:
-            db_pool: Database connection pool for tenant database
+            supabase: Supabase client for database operations
         """
-        self.db_pool = db_pool
+        self.supabase = supabase
 
-    async def get_sales_data(
+    def get_sales_data(
         self,
-        user_id: UUID,
+        user_id: str,
         channel: str = 'all',  # 'offline', 'online', or 'all'
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
@@ -50,55 +49,51 @@ class SalesAggregator:
         Returns:
             Dictionary with sales data and pagination info
         """
-        async with self.db_pool.acquire() as conn:
-            await conn.execute("SET LOCAL app.current_user_id = $1", str(user_id))
+        sales = []
+        total_count = 0
 
-            sales = []
-            total_count = 0
+        if channel in ('offline', 'all'):
+            offline_data = self._get_offline_sales(
+                start_date, end_date, reseller, product, page, page_size
+            )
+            sales.extend(offline_data['sales'])
+            total_count += offline_data['total_count']
 
-            if channel in ('offline', 'all'):
-                offline_data = await self._get_offline_sales(
-                    conn, start_date, end_date, reseller, product, page, page_size
-                )
-                sales.extend(offline_data['sales'])
-                total_count += offline_data['total_count']
+        if channel in ('online', 'all'):
+            online_data = self._get_online_sales(
+                start_date, end_date, product, country, page, page_size
+            )
+            sales.extend(online_data['sales'])
+            total_count += online_data['total_count']
 
-            if channel in ('online', 'all'):
-                online_data = await self._get_online_sales(
-                    conn, start_date, end_date, product, country, page, page_size
-                )
-                sales.extend(online_data['sales'])
-                total_count += online_data['total_count']
+        # Sort by date descending
+        sales.sort(key=lambda x: x['date'], reverse=True)
 
-            # Sort by date descending
-            sales.sort(key=lambda x: x['date'], reverse=True)
+        # Apply pagination to combined results if fetching both channels
+        if channel == 'all':
+            offset = (page - 1) * page_size
+            sales = sales[offset:offset + page_size]
 
-            # Apply pagination to combined results if fetching both channels
-            if channel == 'all':
-                offset = (page - 1) * page_size
-                sales = sales[offset:offset + page_size]
-
-            return {
-                'sales': sales,
-                'pagination': {
-                    'page': page,
-                    'page_size': page_size,
-                    'total_count': total_count,
-                    'total_pages': (total_count + page_size - 1) // page_size
-                },
-                'filters': {
-                    'channel': channel,
-                    'start_date': start_date.isoformat() if start_date else None,
-                    'end_date': end_date.isoformat() if end_date else None,
-                    'reseller': reseller,
-                    'product': product,
-                    'country': country
-                }
+        return {
+            'sales': sales,
+            'pagination': {
+                'page': page,
+                'page_size': page_size,
+                'total_count': total_count,
+                'total_pages': (total_count + page_size - 1) // page_size
+            },
+            'filters': {
+                'channel': channel,
+                'start_date': start_date.isoformat() if start_date else None,
+                'end_date': end_date.isoformat() if end_date else None,
+                'reseller': reseller,
+                'product': product,
+                'country': country
             }
+        }
 
-    async def _get_offline_sales(
+    def _get_offline_sales(
         self,
-        conn: asyncpg.Connection,
         start_date: Optional[date],
         end_date: Optional[date],
         reseller: Optional[str],
@@ -108,89 +103,59 @@ class SalesAggregator:
     ) -> Dict[str, Any]:
         """Get offline (B2B) sales data"""
 
-        filters = []
-        params = []
-        param_count = 0
+        # Query sellout_entries2
+        query = self.supabase.table("sellout_entries2").select("*")
 
-        # Date filter
-        if start_date and end_date:
-            param_count += 1
-            filters.append(f"make_date(year, month, 1) >= ${param_count}")
-            params.append(start_date)
-            param_count += 1
-            filters.append(f"make_date(year, month, 1) <= ${param_count}")
-            params.append(end_date)
-
-        # Reseller filter
+        # Apply filters
         if reseller:
-            param_count += 1
-            filters.append(f"reseller ILIKE ${param_count}")
-            params.append(f"%{reseller}%")
+            query = query.ilike("reseller", f"%{reseller}%")
 
-        # Product filter (fuzzy search)
         if product:
-            param_count += 1
-            filters.append(f"functional_name ILIKE ${param_count}")
-            params.append(f"%{product}%")
+            query = query.ilike("functional_name", f"%{product}%")
 
-        where_clause = "WHERE " + " AND ".join(filters) if filters else ""
+        result = query.execute()
 
-        # Count query
-        count_query = f"""
-            SELECT COUNT(*) as total
-            FROM sellout_entries2
-            {where_clause}
-        """
+        if not result.data:
+            return {'sales': [], 'total_count': 0}
 
-        count_row = await conn.fetchrow(count_query, *params)
-        total_count = count_row['total']
+        # Filter by date range (month/year based)
+        records = result.data
+        if start_date and end_date:
+            filtered = []
+            for r in records:
+                if r.get('year') and r.get('month'):
+                    try:
+                        record_date = date(r['year'], r['month'], 1)
+                        if start_date <= record_date <= end_date:
+                            filtered.append(r)
+                    except (ValueError, TypeError):
+                        continue
+            records = filtered
 
-        # Data query with pagination
+        total_count = len(records)
+
+        # Sort by year, month descending
+        records.sort(key=lambda x: (x.get('year', 0), x.get('month', 0)), reverse=True)
+
+        # Apply pagination
         offset = (page - 1) * page_size
-        param_count += 1
-        limit_param = param_count
-        param_count += 1
-        offset_param = param_count
-
-        params.extend([page_size, offset])
-
-        data_query = f"""
-            SELECT
-                sale_id,
-                functional_name as product_name,
-                product_ean,
-                reseller,
-                sales_eur as revenue,
-                quantity,
-                currency,
-                make_date(year, month, 1) as date,
-                month,
-                year,
-                'offline' as channel,
-                created_at
-            FROM sellout_entries2
-            {where_clause}
-            ORDER BY year DESC, month DESC, created_at DESC
-            LIMIT ${limit_param} OFFSET ${offset_param}
-        """
-
-        rows = await conn.fetch(data_query, *params)
+        paginated_records = records[offset:offset + page_size]
 
         sales = [
             {
-                'sale_id': str(row['sale_id']),
-                'product_name': row['product_name'],
-                'product_ean': row['product_ean'],
-                'reseller': row['reseller'],
-                'revenue': float(row['revenue']),
-                'quantity': row['quantity'],
-                'currency': row['currency'],
-                'date': row['date'].isoformat(),
-                'channel': row['channel'],
-                'country': None,  # Not available for offline
-                'created_at': row['created_at'].isoformat()
+                'sale_id': str(r.get('sale_id', '')),
+                'product_name': r.get('functional_name', 'Unknown'),
+                'product_ean': r.get('product_ean', ''),
+                'reseller': r.get('reseller', ''),
+                'revenue': float(r.get('sales_eur', 0) or 0),
+                'quantity': int(r.get('quantity', 0) or 0),
+                'currency': r.get('currency', 'EUR'),
+                'date': date(r['year'], r['month'], 1).isoformat() if r.get('year') and r.get('month') else None,
+                'channel': 'offline',
+                'country': None,
+                'created_at': r.get('created_at', '')
             }
-            for row in rows
+            for r in paginated_records
         ]
 
         return {
@@ -198,9 +163,8 @@ class SalesAggregator:
             'total_count': total_count
         }
 
-    async def _get_online_sales(
+    def _get_online_sales(
         self,
-        conn: asyncpg.Connection,
         start_date: Optional[date],
         end_date: Optional[date],
         product: Optional[str],
@@ -210,94 +174,56 @@ class SalesAggregator:
     ) -> Dict[str, Any]:
         """Get online (D2C) sales data"""
 
-        filters = []
-        params = []
-        param_count = 0
+        # Query ecommerce_orders
+        query = self.supabase.table("ecommerce_orders").select("*")
 
-        # Date filter
+        # Apply date filters
         if start_date:
-            param_count += 1
-            filters.append(f"order_date >= ${param_count}")
-            params.append(start_date)
-
+            query = query.gte("order_date", start_date.isoformat())
         if end_date:
-            param_count += 1
-            filters.append(f"order_date <= ${param_count}")
-            params.append(end_date)
+            query = query.lte("order_date", end_date.isoformat())
 
-        # Product filter (fuzzy search)
+        # Product filter (fuzzy)
         if product:
-            param_count += 1
-            filters.append(f"functional_name ILIKE ${param_count}")
-            params.append(f"%{product}%")
+            query = query.ilike("functional_name", f"%{product}%")
 
         # Country filter
         if country:
-            param_count += 1
-            filters.append(f"country ILIKE ${param_count}")
-            params.append(f"%{country}%")
+            query = query.ilike("country", f"%{country}%")
 
-        where_clause = "WHERE " + " AND ".join(filters) if filters else ""
+        # Order by date descending
+        query = query.order("order_date", desc=True)
 
-        # Count query
-        count_query = f"""
-            SELECT COUNT(*) as total
-            FROM ecommerce_orders
-            {where_clause}
-        """
+        result = query.execute()
 
-        count_row = await conn.fetchrow(count_query, *params)
-        total_count = count_row['total']
+        if not result.data:
+            return {'sales': [], 'total_count': 0}
 
-        # Data query with pagination
+        records = result.data
+        total_count = len(records)
+
+        # Apply pagination
         offset = (page - 1) * page_size
-        param_count += 1
-        limit_param = param_count
-        param_count += 1
-        offset_param = param_count
-
-        params.extend([page_size, offset])
-
-        data_query = f"""
-            SELECT
-                order_id,
-                functional_name as product_name,
-                product_ean,
-                sales_eur as revenue,
-                quantity,
-                cost_of_goods,
-                stripe_fee,
-                order_date as date,
-                country,
-                city,
-                'online' as channel,
-                created_at
-            FROM ecommerce_orders
-            {where_clause}
-            ORDER BY order_date DESC, created_at DESC
-            LIMIT ${limit_param} OFFSET ${offset_param}
-        """
-
-        rows = await conn.fetch(data_query, *params)
+        paginated_records = records[offset:offset + page_size]
 
         sales = [
             {
-                'sale_id': str(row['order_id']),
-                'product_name': row['product_name'],
-                'product_ean': row['product_ean'],
-                'reseller': None,  # Not available for online
-                'revenue': float(row['revenue']),
-                'quantity': row['quantity'],
-                'currency': 'EUR',  # Online always EUR
-                'date': row['date'].isoformat(),
-                'channel': row['channel'],
-                'country': row['country'],
-                'city': row['city'],
-                'cost_of_goods': float(row['cost_of_goods']) if row['cost_of_goods'] else None,
-                'stripe_fee': float(row['stripe_fee']) if row['stripe_fee'] else None,
-                'created_at': row['created_at'].isoformat()
+                'sale_id': str(r.get('order_id', '')),
+                'product_name': r.get('functional_name', 'Unknown'),
+                'product_ean': r.get('product_ean', ''),
+                'reseller': None,
+                'revenue': float(r.get('sales_eur', 0) or 0),
+                'quantity': int(r.get('quantity', 0) or 0),
+                'currency': 'EUR',
+                'date': r.get('order_date', ''),
+                'channel': 'online',
+                'country': r.get('country', ''),
+                'city': r.get('city', ''),
+                'cost_of_goods': float(r.get('cost_of_goods', 0) or 0) if r.get('cost_of_goods') else None,
+                'stripe_fee': float(r.get('stripe_fee', 0) or 0) if r.get('stripe_fee') else None,
+                'created_at': r.get('created_at', '')
             }
-            for row in rows
+            for r in paginated_records
         ]
 
         return {
@@ -305,9 +231,9 @@ class SalesAggregator:
             'total_count': total_count
         }
 
-    async def get_sales_summary(
+    def get_sales_summary(
         self,
-        user_id: UUID,
+        user_id: str,
         group_by: str = 'month',  # 'month', 'product', 'reseller', 'country'
         channel: str = 'all',
         start_date: Optional[date] = None,
@@ -326,31 +252,27 @@ class SalesAggregator:
         Returns:
             List of aggregated sales by grouping dimension
         """
-        async with self.db_pool.acquire() as conn:
-            await conn.execute("SET LOCAL app.current_user_id = $1", str(user_id))
+        if group_by == 'month':
+            return self._get_monthly_summary(
+                channel, start_date, end_date
+            )
+        elif group_by == 'product':
+            return self._get_product_summary(
+                channel, start_date, end_date
+            )
+        elif group_by == 'reseller':
+            return self._get_reseller_summary(
+                start_date, end_date
+            )
+        elif group_by == 'country':
+            return self._get_country_summary(
+                start_date, end_date
+            )
+        else:
+            raise ValueError(f"Invalid group_by: {group_by}")
 
-            if group_by == 'month':
-                return await self._get_monthly_summary(
-                    conn, channel, start_date, end_date
-                )
-            elif group_by == 'product':
-                return await self._get_product_summary(
-                    conn, channel, start_date, end_date
-                )
-            elif group_by == 'reseller':
-                return await self._get_reseller_summary(
-                    conn, start_date, end_date
-                )
-            elif group_by == 'country':
-                return await self._get_country_summary(
-                    conn, start_date, end_date
-                )
-            else:
-                raise ValueError(f"Invalid group_by: {group_by}")
-
-    async def _get_monthly_summary(
+    def _get_monthly_summary(
         self,
-        conn: asyncpg.Connection,
         channel: str,
         start_date: Optional[date],
         end_date: Optional[date]
@@ -361,113 +283,223 @@ class SalesAggregator:
 
         if channel in ('offline', 'all'):
             # Offline monthly summary
-            filters = []
-            params = []
+            query = self.supabase.table("sellout_entries2").select("*")
+            result = query.execute()
 
-            if start_date and end_date:
-                filters.append("make_date(year, month, 1) >= $1 AND make_date(year, month, 1) <= $2")
-                params = [start_date, end_date]
+            if result.data:
+                records = result.data
 
-            where_clause = "WHERE " + " AND ".join(filters) if filters else ""
+                # Filter by date if provided
+                if start_date and end_date:
+                    filtered = []
+                    for r in records:
+                        if r.get('year') and r.get('month'):
+                            try:
+                                record_date = date(r['year'], r['month'], 1)
+                                if start_date <= record_date <= end_date:
+                                    filtered.append(r)
+                            except (ValueError, TypeError):
+                                continue
+                    records = filtered
 
-            query = f"""
-                SELECT
-                    year,
-                    month,
-                    make_date(year, month, 1) as period,
-                    SUM(sales_eur) as revenue,
-                    SUM(quantity) as units,
-                    COUNT(*) as transactions,
-                    'offline' as channel
-                FROM sellout_entries2
-                {where_clause}
-                GROUP BY year, month
-                ORDER BY year DESC, month DESC
-            """
+                # Group by month in Python
+                monthly = {}
+                for r in records:
+                    if r.get('year') and r.get('month'):
+                        key = (r['year'], r['month'])
+                        if key not in monthly:
+                            monthly[key] = {
+                                'period': date(r['year'], r['month'], 1).isoformat(),
+                                'revenue': 0.0,
+                                'units': 0,
+                                'transactions': 0,
+                                'channel': 'offline'
+                            }
+                        monthly[key]['revenue'] += float(r.get('sales_eur', 0) or 0)
+                        monthly[key]['units'] += int(r.get('quantity', 0) or 0)
+                        monthly[key]['transactions'] += 1
 
-            rows = await conn.fetch(query, *params)
-            results.extend([
-                {
-                    'period': row['period'].isoformat(),
-                    'revenue': float(row['revenue']),
-                    'units': row['units'],
-                    'transactions': row['transactions'],
-                    'channel': row['channel']
-                }
-                for row in rows
-            ])
+                results.extend(sorted(monthly.values(), key=lambda x: x['period'], reverse=True))
 
         if channel in ('online', 'all'):
             # Online monthly summary
-            filters = []
-            params = []
+            query = self.supabase.table("ecommerce_orders").select("*")
 
             if start_date:
-                filters.append("order_date >= $1")
-                params.append(start_date)
-
+                query = query.gte("order_date", start_date.isoformat())
             if end_date:
-                param_num = len(params) + 1
-                filters.append(f"order_date <= ${param_num}")
-                params.append(end_date)
+                query = query.lte("order_date", end_date.isoformat())
 
-            where_clause = "WHERE " + " AND ".join(filters) if filters else ""
+            result = query.execute()
 
-            query = f"""
-                SELECT
-                    DATE_TRUNC('month', order_date)::date as period,
-                    SUM(sales_eur) as revenue,
-                    SUM(quantity) as units,
-                    COUNT(*) as orders,
-                    'online' as channel
-                FROM ecommerce_orders
-                {where_clause}
-                GROUP BY DATE_TRUNC('month', order_date)
-                ORDER BY period DESC
-            """
+            if result.data:
+                # Group by month in Python
+                monthly = {}
+                for r in result.data:
+                    order_date = r.get('order_date')
+                    if order_date:
+                        try:
+                            dt = datetime.fromisoformat(order_date.replace('Z', '+00:00'))
+                            period = date(dt.year, dt.month, 1).isoformat()
 
-            rows = await conn.fetch(query, *params)
-            results.extend([
-                {
-                    'period': row['period'].isoformat(),
-                    'revenue': float(row['revenue']),
-                    'units': row['units'],
-                    'transactions': row['orders'],
-                    'channel': row['channel']
-                }
-                for row in rows
-            ])
+                            if period not in monthly:
+                                monthly[period] = {
+                                    'period': period,
+                                    'revenue': 0.0,
+                                    'units': 0,
+                                    'transactions': 0,
+                                    'channel': 'online'
+                                }
+                            monthly[period]['revenue'] += float(r.get('sales_eur', 0) or 0)
+                            monthly[period]['units'] += int(r.get('quantity', 0) or 0)
+                            monthly[period]['transactions'] += 1
+                        except (ValueError, TypeError):
+                            continue
+
+                results.extend(sorted(monthly.values(), key=lambda x: x['period'], reverse=True))
 
         return results
 
-    async def _get_product_summary(
+    def _get_product_summary(
         self,
-        conn: asyncpg.Connection,
         channel: str,
         start_date: Optional[date],
         end_date: Optional[date]
     ) -> List[Dict[str, Any]]:
         """Get sales summary grouped by product"""
-        # Implementation similar to monthly, group by functional_name
-        # Simplified for brevity
-        return []
 
-    async def _get_reseller_summary(
+        results = {}
+
+        if channel in ('offline', 'all'):
+            query = self.supabase.table("sellout_entries2").select("*")
+            result = query.execute()
+
+            if result.data:
+                for r in result.data:
+                    # Filter by date if needed
+                    if start_date and end_date and r.get('year') and r.get('month'):
+                        try:
+                            record_date = date(r['year'], r['month'], 1)
+                            if not (start_date <= record_date <= end_date):
+                                continue
+                        except (ValueError, TypeError):
+                            continue
+
+                    product = r.get('functional_name', 'Unknown')
+                    if product not in results:
+                        results[product] = {
+                            'product': product,
+                            'revenue': 0.0,
+                            'units': 0,
+                            'transactions': 0
+                        }
+                    results[product]['revenue'] += float(r.get('sales_eur', 0) or 0)
+                    results[product]['units'] += int(r.get('quantity', 0) or 0)
+                    results[product]['transactions'] += 1
+
+        if channel in ('online', 'all'):
+            query = self.supabase.table("ecommerce_orders").select("*")
+
+            if start_date:
+                query = query.gte("order_date", start_date.isoformat())
+            if end_date:
+                query = query.lte("order_date", end_date.isoformat())
+
+            result = query.execute()
+
+            if result.data:
+                for r in result.data:
+                    product = r.get('functional_name', 'Unknown')
+                    if product not in results:
+                        results[product] = {
+                            'product': product,
+                            'revenue': 0.0,
+                            'units': 0,
+                            'transactions': 0
+                        }
+                    results[product]['revenue'] += float(r.get('sales_eur', 0) or 0)
+                    results[product]['units'] += int(r.get('quantity', 0) or 0)
+                    results[product]['transactions'] += 1
+
+        return sorted(results.values(), key=lambda x: x['revenue'], reverse=True)
+
+    def _get_reseller_summary(
         self,
-        conn: asyncpg.Connection,
         start_date: Optional[date],
         end_date: Optional[date]
     ) -> List[Dict[str, Any]]:
         """Get sales summary grouped by reseller (offline only)"""
-        # Implementation for reseller grouping
-        return []
 
-    async def _get_country_summary(
+        query = self.supabase.table("sellout_entries2").select("*")
+        result = query.execute()
+
+        if not result.data:
+            return []
+
+        records = result.data
+
+        # Filter by date if provided
+        if start_date and end_date:
+            filtered = []
+            for r in records:
+                if r.get('year') and r.get('month'):
+                    try:
+                        record_date = date(r['year'], r['month'], 1)
+                        if start_date <= record_date <= end_date:
+                            filtered.append(r)
+                    except (ValueError, TypeError):
+                        continue
+            records = filtered
+
+        # Group by reseller
+        resellers = {}
+        for r in records:
+            reseller = r.get('reseller', 'Unknown')
+            if reseller not in resellers:
+                resellers[reseller] = {
+                    'reseller': reseller,
+                    'revenue': 0.0,
+                    'units': 0,
+                    'transactions': 0
+                }
+            resellers[reseller]['revenue'] += float(r.get('sales_eur', 0) or 0)
+            resellers[reseller]['units'] += int(r.get('quantity', 0) or 0)
+            resellers[reseller]['transactions'] += 1
+
+        return sorted(resellers.values(), key=lambda x: x['revenue'], reverse=True)
+
+    def _get_country_summary(
         self,
-        conn: asyncpg.Connection,
         start_date: Optional[date],
         end_date: Optional[date]
     ) -> List[Dict[str, Any]]:
         """Get sales summary grouped by country (online only)"""
-        # Implementation for country grouping
-        return []
+
+        query = self.supabase.table("ecommerce_orders").select("*")
+
+        if start_date:
+            query = query.gte("order_date", start_date.isoformat())
+        if end_date:
+            query = query.lte("order_date", end_date.isoformat())
+
+        result = query.execute()
+
+        if not result.data:
+            return []
+
+        # Group by country
+        countries = {}
+        for r in result.data:
+            country = r.get('country', 'Unknown')
+            if country not in countries:
+                countries[country] = {
+                    'country': country,
+                    'revenue': 0.0,
+                    'units': 0,
+                    'transactions': 0
+                }
+            countries[country]['revenue'] += float(r.get('sales_eur', 0) or 0)
+            countries[country]['units'] += int(r.get('quantity', 0) or 0)
+            countries[country]['transactions'] += 1
+
+        return sorted(countries.values(), key=lambda x: x['revenue'], reverse=True)

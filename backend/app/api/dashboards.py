@@ -19,7 +19,7 @@ from app.models.dashboard import (
 )
 from app.services.dashboard.manager import DashboardManager
 from app.services.dashboard.validator import DashboardURLValidator
-import asyncpg
+from supabase import Client
 
 
 router = APIRouter(prefix="/dashboards", tags=["Dashboards"])
@@ -29,7 +29,7 @@ router = APIRouter(prefix="/dashboards", tags=["Dashboards"])
 async def create_dashboard(
     dashboard: DashboardCreate,
     current_user: Annotated[UserResponse, Depends(get_current_user)],
-    db_pool: Annotated[asyncpg.Pool, Depends(get_tenant_db_pool)]
+    supabase: Annotated[Client, Depends(get_tenant_db_pool)]
 ):
     """
     Create new dashboard configuration
@@ -43,7 +43,7 @@ async def create_dashboard(
     Dashboard URLs are validated for security (HTTPS required, localhost blocked in production)
     """
     try:
-        manager = DashboardManager(db_pool)
+        manager = DashboardManager(supabase)
         validator = DashboardURLValidator()
 
         # Validate URL
@@ -74,7 +74,7 @@ async def create_dashboard(
 @router.get("", response_model=DashboardList, status_code=status.HTTP_200_OK)
 async def list_dashboards(
     current_user: Annotated[UserResponse, Depends(get_current_user)],
-    db_pool: Annotated[asyncpg.Pool, Depends(get_tenant_db_pool)],
+    supabase: Annotated[Client, Depends(get_tenant_db_pool)],
     skip: int = 0,
     limit: int = 50
 ):
@@ -87,7 +87,7 @@ async def list_dashboards(
     Returns dashboards sorted with primary dashboard first
     """
     try:
-        manager = DashboardManager(db_pool)
+        manager = DashboardManager(supabase)
 
         dashboards = await manager.list_dashboards(
             user_id=UUID(current_user.user_id),
@@ -113,7 +113,7 @@ async def list_dashboards(
 async def get_dashboard(
     dashboard_id: UUID,
     current_user: Annotated[UserResponse, Depends(get_current_user)],
-    db_pool: Annotated[asyncpg.Pool, Depends(get_tenant_db_pool)]
+    supabase: Annotated[Client, Depends(get_tenant_db_pool)]
 ):
     """
     Get dashboard details by ID
@@ -121,7 +121,7 @@ async def get_dashboard(
     Returns dashboard configuration with decrypted auth (if user has permission)
     """
     try:
-        manager = DashboardManager(db_pool)
+        manager = DashboardManager(supabase)
 
         dashboard = await manager.get_dashboard(
             dashboard_id=dashboard_id,
@@ -150,7 +150,7 @@ async def update_dashboard(
     dashboard_id: UUID,
     update: DashboardUpdate,
     current_user: Annotated[UserResponse, Depends(get_current_user)],
-    db_pool: Annotated[asyncpg.Pool, Depends(get_tenant_db_pool)]
+    supabase: Annotated[Client, Depends(get_tenant_db_pool)]
 ):
     """
     Update dashboard configuration
@@ -163,7 +163,7 @@ async def update_dashboard(
     Only fields provided in request will be updated
     """
     try:
-        manager = DashboardManager(db_pool)
+        manager = DashboardManager(supabase)
         validator = DashboardURLValidator()
 
         # Validate new URL if provided
@@ -203,7 +203,7 @@ async def update_dashboard(
 async def delete_dashboard(
     dashboard_id: UUID,
     current_user: Annotated[UserResponse, Depends(get_current_user)],
-    db_pool: Annotated[asyncpg.Pool, Depends(get_tenant_db_pool)]
+    supabase: Annotated[Client, Depends(get_tenant_db_pool)]
 ):
     """
     Delete dashboard configuration
@@ -211,7 +211,7 @@ async def delete_dashboard(
     This will permanently delete the dashboard configuration.
     """
     try:
-        manager = DashboardManager(db_pool)
+        manager = DashboardManager(supabase)
 
         deleted = await manager.delete_dashboard(
             dashboard_id=dashboard_id,
@@ -239,7 +239,7 @@ async def delete_dashboard(
 async def set_primary_dashboard(
     dashboard_id: UUID,
     current_user: Annotated[UserResponse, Depends(get_current_user)],
-    db_pool: Annotated[asyncpg.Pool, Depends(get_tenant_db_pool)]
+    supabase: Annotated[Client, Depends(get_tenant_db_pool)]
 ):
     """
     Set dashboard as primary
@@ -248,7 +248,7 @@ async def set_primary_dashboard(
     Setting a new primary will unset the previous primary.
     """
     try:
-        manager = DashboardManager(db_pool)
+        manager = DashboardManager(supabase)
 
         updated = await manager.set_primary_dashboard(
             dashboard_id=dashboard_id,
@@ -276,7 +276,7 @@ async def set_primary_dashboard(
 async def get_dashboard_embed_url(
     request: DashboardEmbedRequest,
     current_user: Annotated[UserResponse, Depends(get_current_user)],
-    db_pool: Annotated[asyncpg.Pool, Depends(get_tenant_db_pool)]
+    supabase: Annotated[Client, Depends(get_tenant_db_pool)]
 ):
     """
     Get secure embed URL with authentication for iframe display
@@ -286,7 +286,7 @@ async def get_dashboard_embed_url(
     Returns URL with embedded authentication for secure iframe display
     """
     try:
-        manager = DashboardManager(db_pool)
+        manager = DashboardManager(supabase)
 
         embed_response = await manager.get_embed_url(
             dashboard_id=request.dashboard_id,

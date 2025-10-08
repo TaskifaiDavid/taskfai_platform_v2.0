@@ -20,3 +20,29 @@ postgres_data/
 # Logs
 *.log
 logs/
+.mcp.json
+
+# Temporary files
+*.txt
+!requirements.txt
+!backend/test_data/*.txt
+*.png
+*.jpg
+*.jpeg
+*.xlsx
+*.csv
+!backend/test_data/*.csv
+!backend/test_data/*.xlsx
+
+# Claude Code
+.claude/agents/
+CLAUDE.md
+*_FIX.md
+*_STATUS.md
+ERROR_*.md
+FIXES_*.md
+
+# Python cache
+__pycache__/
+*.pyc
+.pytest_cache/

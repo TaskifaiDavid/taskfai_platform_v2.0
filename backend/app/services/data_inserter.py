@@ -66,7 +66,6 @@ class DataInserter:
                             failed -= 1
                     except Exception as single_error:
                         print(f"Single record insert error: {single_error}")
-                        # Record remains in failed count
 
         return successful, failed
 

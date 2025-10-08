@@ -7,8 +7,9 @@ from datetime import datetime
 from typing import Dict, Any
 
 from app.workers.celery_app import celery_app
-from app.db import get_supabase
+from app.core.config import settings
 from app.services.file_storage import file_storage
+from app.db import get_supabase
 
 
 @celery_app.task(bind=True, name="app.workers.tasks.process_upload")
@@ -29,18 +30,20 @@ def process_upload(self, batch_id: str, user_id: str) -> Dict[str, Any]:
         # Update status to processing
         supabase.table("upload_batches").update({
             "processing_status": "processing",
-            "started_processing_at": datetime.utcnow().isoformat()
-        }).eq("batch_id", batch_id).execute()
+            "processing_started_at": datetime.utcnow().isoformat()
+        }).eq("upload_batch_id", batch_id).execute()
 
         # Get batch details
-        batch_result = supabase.table("upload_batches").select("*").eq("batch_id", batch_id).execute()
+        batch_result = supabase.table("upload_batches").select("*").eq("upload_batch_id", batch_id).execute()
 
         if not batch_result.data:
             raise Exception(f"Batch {batch_id} not found")
 
         batch = batch_result.data[0]
-        file_path = batch["file_path"]
-        filename = batch["filename"]
+
+        # Reconstruct file path from batch info
+        filename = batch["original_filename"]
+        file_path = f"/tmp/uploads/{user_id}/{batch_id}/{filename}"
 
         # Vendor detection
         from app.services.vendors.detector import vendor_detector
@@ -51,8 +54,8 @@ def process_upload(self, batch_id: str, user_id: str) -> Dict[str, Any]:
 
         # Update batch with detected vendor
         supabase.table("upload_batches").update({
-            "detected_vendor": detected_vendor
-        }).eq("batch_id", batch_id).execute()
+            "vendor_name": detected_vendor
+        }).eq("upload_batch_id", batch_id).execute()
 
         # Process based on vendor
         if detected_vendor == "demo":
@@ -68,10 +71,10 @@ def process_upload(self, batch_id: str, user_id: str) -> Dict[str, Any]:
             # Check duplicates if in append mode
             transformed_data = process_result["transformed_data"]
             if batch["upload_mode"] == "append":
-                transformed_data = inserter.check_duplicates(user_id, "online_sales", transformed_data)
+                transformed_data = inserter.check_duplicates(user_id, "ecommerce_orders", transformed_data)
 
-            # Insert demo data into online_sales table
-            successful, failed = inserter.insert_online_sales(transformed_data, batch["upload_mode"])
+            # Insert demo data into ecommerce_orders table
+            successful, failed = inserter.insert_ecommerce_orders(transformed_data, batch["upload_mode"])
 
             result = {
                 "total_rows": process_result["total_rows"],
@@ -111,12 +114,11 @@ def process_upload(self, batch_id: str, user_id: str) -> Dict[str, Any]:
         # Update batch with results
         supabase.table("upload_batches").update({
             "processing_status": "completed",
-            "processed_at": datetime.utcnow().isoformat(),
-            "total_rows": result["total_rows"],
-            "successful_rows": result["successful_rows"],
-            "failed_rows": result["failed_rows"],
-            "detected_vendor": result["detected_vendor"]
-        }).eq("batch_id", batch_id).execute()
+            "processing_completed_at": datetime.utcnow().isoformat(),
+            "rows_total": result["total_rows"],
+            "rows_processed": result["successful_rows"],
+            "rows_failed": result["failed_rows"]
+        }).eq("upload_batch_id", batch_id).execute()
 
         # Cleanup temporary files
         file_storage.cleanup_batch(user_id, batch_id)
@@ -137,9 +139,9 @@ def process_upload(self, batch_id: str, user_id: str) -> Dict[str, Any]:
         # Update batch with error
         supabase.table("upload_batches").update({
             "processing_status": "failed",
-            "processed_at": datetime.utcnow().isoformat(),
-            "error_message": error_message
-        }).eq("batch_id", batch_id).execute()
+            "processing_completed_at": datetime.utcnow().isoformat(),
+            "error_summary": error_message
+        }).eq("upload_batch_id", batch_id).execute()
 
         # Send failure email notification
         send_email.delay(user_id, batch_id, "failure")
