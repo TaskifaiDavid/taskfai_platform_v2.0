@@ -10,7 +10,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.backends import default_backend
 
 from app.core.config import settings
@@ -115,7 +115,7 @@ def _get_encryption_key() -> bytes:
     Returns:
         32-byte encryption key for AES-256
     """
-    kdf = PBKDF2(
+    kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
         length=32,
         salt=b'taskifai_tenant_credentials',  # Static salt for deterministic key
@@ -168,3 +168,8 @@ def decrypt_credential(encrypted: str) -> str:
     fernet = Fernet(key)
     decrypted_bytes = fernet.decrypt(encrypted.encode())
     return decrypted_bytes.decode()
+
+
+# Aliases for backwards compatibility
+encrypt_data = encrypt_credential
+decrypt_data = decrypt_credential

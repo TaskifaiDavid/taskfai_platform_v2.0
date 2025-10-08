@@ -230,3 +230,6 @@ class TenantDBManager:
 
 # Global database manager instance
 db_manager = TenantDBManager()
+
+# Alias for backwards compatibility
+DatabaseManager = TenantDBManager

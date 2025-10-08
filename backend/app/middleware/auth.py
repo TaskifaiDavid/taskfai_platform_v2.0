@@ -50,6 +50,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
         Raises:
             HTTPException: If authentication fails
         """
+        # Skip auth for OPTIONS preflight requests (CORS)
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
         # Skip auth for public paths
         if request.url.path in self.PUBLIC_PATHS:
             return await call_next(request)

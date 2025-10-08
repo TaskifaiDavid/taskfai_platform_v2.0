@@ -1,31 +1,70 @@
-import { useState } from 'react'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { Layout } from '@/components/layout/Layout'
+import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
+import { Toaster } from '@/components/ui/toast'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import { useAuthStore } from '@/stores/auth'
 
-function App() {
-  const [count, setCount] = useState(0)
+// Pages
+import { Login } from '@/pages/Login'
+import { Dashboard } from '@/pages/Dashboard'
+import { Uploads } from '@/pages/Uploads'
+import { Chat } from '@/pages/Chat'
+import { Analytics } from '@/pages/Analytics'
+import { Dashboards } from '@/pages/Dashboards'
+import { Admin } from '@/pages/Admin'
+import { Settings } from '@/pages/Settings'
+
+function AppRoutes() {
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold text-gray-900 mb-4">
-          TaskifAI Sales Analytics Platform
-        </h1>
-        <p className="text-lg text-gray-600 mb-8">
-          Multi-channel sales data analytics with AI-powered insights
-        </p>
-        <div className="flex gap-4 justify-center">
-          <button
-            onClick={() => setCount((count) => count + 1)}
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            Count: {count}
-          </button>
-        </div>
-        <p className="mt-8 text-sm text-gray-500">
-          Frontend: React 19 + Vite 6 + TypeScript | Backend: FastAPI + Supabase
-        </p>
-      </div>
-    </div>
+    <Routes>
+      {/* Public routes */}
+      <Route
+        path="/login"
+        element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />}
+      />
+
+      {/* Protected routes */}
+      <Route
+        path="/"
+        element={
+          <ProtectedRoute>
+            <Layout />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route path="dashboard" element={<Dashboard />} />
+        <Route path="uploads" element={<Uploads />} />
+        <Route path="chat" element={<Chat />} />
+        <Route path="analytics" element={<Analytics />} />
+        <Route path="dashboards" element={<Dashboards />} />
+        <Route path="settings" element={<Settings />} />
+        <Route
+          path="admin"
+          element={
+            <ProtectedRoute requireAdmin>
+              <Admin />
+            </ProtectedRoute>
+          }
+        />
+      </Route>
+
+      {/* Catch all */}
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   )
 }
 
-export default App
+export default function App() {
+  return (
+    <BrowserRouter>
+      <TooltipProvider delayDuration={200}>
+        <AppRoutes />
+        <Toaster />
+      </TooltipProvider>
+    </BrowserRouter>
+  )
+}

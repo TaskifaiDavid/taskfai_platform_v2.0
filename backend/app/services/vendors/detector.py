@@ -12,6 +12,11 @@ class VendorDetector:
 
     # Vendor detection patterns
     VENDOR_PATTERNS = {
+        "demo": {
+            "filename_keywords": ["demo"],
+            "sheet_names": ["Sheet1"],
+            "required_columns": ["Brand", "BrandName", "Month", "Information"]
+        },
         "boxnox": {
             "filename_keywords": ["boxnox"],
             "sheet_names": ["Sell Out by EAN"],

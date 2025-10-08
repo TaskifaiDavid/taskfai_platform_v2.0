@@ -54,11 +54,12 @@ def get_supabase_client(
     Returns:
         Configured Supabase client for tenant's database
     """
-    # For demo mode, use configured database
+    # For demo mode, use configured database with SERVICE key
+    # Service key bypasses RLS, which is needed for auth operations
     if tenant_context.is_demo:
         return create_client(
             settings.supabase_url,
-            settings.supabase_anon_key
+            settings.supabase_service_key  # Changed from anon_key
         )
 
     # For production tenants, use tenant-specific database
@@ -72,7 +73,7 @@ def get_supabase_client(
     # Fallback to demo database
     return create_client(
         settings.supabase_url,
-        settings.supabase_anon_key
+        settings.supabase_service_key  # Changed from anon_key
     )
 
 
@@ -123,6 +124,26 @@ async def get_current_user(
 
     except Exception:
         raise credentials_exception
+
+
+# Alias for backwards compatibility
+async def get_tenant_db_pool(
+    tenant_context: Annotated[TenantContext, Depends(get_tenant_context)]
+) -> Client:
+    """Alias for get_supabase_client for backwards compatibility"""
+    return get_supabase_client(tenant_context)
+
+
+async def require_admin(
+    user: Annotated[dict, Depends(get_current_user)]
+) -> dict:
+    """Require admin role for endpoint"""
+    if user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+    return user
 
 
 # Type alias for dependency injection

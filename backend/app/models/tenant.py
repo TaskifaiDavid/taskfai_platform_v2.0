@@ -94,6 +94,10 @@ class Tenant(TenantInDB):
         return cls(**data)
 
 
+# Alias for backwards compatibility
+TenantResponse = Tenant
+
+
 class TenantConfig(BaseModel):
     """Tenant-specific configuration"""
     tenant_id: str

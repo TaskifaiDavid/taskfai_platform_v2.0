@@ -1,38 +1,56 @@
-version: '3.8'
+# ============================================
+# TaskifAI Docker Compose - Local Development
+# ============================================
+
+version: '3.9'
 
 services:
-  # PostgreSQL Database (for local development without Supabase)
+  # ============================================
+  # POSTGRES DATABASE
+  # ============================================
   db:
     image: postgres:17-alpine
     container_name: taskifai-postgres
     environment:
       POSTGRES_DB: taskifai
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: taskifai
+      POSTGRES_PASSWORD: taskifai_dev_password
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+      - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./backend/db/seed_vendor_configs.sql:/docker-entrypoint-initdb.d/02-seed.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U taskifai"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - taskifai-network
 
-  # Redis (for Celery message broker and caching)
+  # ============================================
+  # REDIS
+  # ============================================
   redis:
     image: redis:7-alpine
     container_name: taskifai-redis
     ports:
       - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - taskifai-network
 
-  # Backend API
+  # ============================================
+  # BACKEND API
+  # ============================================
   backend:
     build:
       context: ./backend
@@ -43,19 +61,31 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/taskifai
+      - DATABASE_URL=postgresql://taskifai:taskifai_dev_password@db:5432/taskifai
       - REDIS_URL=redis://redis:6379/0
+      - ENVIRONMENT=development
+      - DEBUG=true
     volumes:
       - ./backend:/app
-      - /tmp/uploads:/tmp/uploads
+      - backend_uploads:/app/uploads
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - taskifai-network
 
-  # Celery Worker (for background tasks)
+  # ============================================
+  # CELERY WORKER
+  # ============================================
   worker:
     build:
       context: ./backend
@@ -64,37 +94,59 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/taskifai
+      - DATABASE_URL=postgresql://taskifai:taskifai_dev_password@db:5432/taskifai
       - REDIS_URL=redis://redis:6379/0
+      - ENVIRONMENT=development
     volumes:
       - ./backend:/app
-      - /tmp/uploads:/tmp/uploads
+      - backend_uploads:/app/uploads
     depends_on:
       redis:
         condition: service_healthy
       db:
         condition: service_healthy
     command: celery -A app.workers.celery_app worker --loglevel=info
+    networks:
+      - taskifai-network
 
-  # Frontend Application
+  # ============================================
+  # FRONTEND APPLICATION
+  # ============================================
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
     container_name: taskifai-frontend
     ports:
-      - "3000:3000"
+      - "5173:5173"
     env_file:
       - ./frontend/.env
     environment:
-      - VITE_API_URL=http://localhost:8000/api
+      - VITE_API_URL=http://localhost:8000
+      - VITE_ENVIRONMENT=development
     volumes:
       - ./frontend:/app
       - /app/node_modules
     depends_on:
       - backend
-    command: npm run dev
+    command: npm run dev -- --host 0.0.0.0
+    networks:
+      - taskifai-network
 
+# ============================================
+# VOLUMES
+# ============================================
 volumes:
   postgres_data:
     driver: local
+  redis_data:
+    driver: local
+  backend_uploads:
+    driver: local
+
+# ============================================
+# NETWORKS
+# ============================================
+networks:
+  taskifai-network:
+    driver: bridge

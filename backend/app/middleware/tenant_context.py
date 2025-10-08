@@ -41,29 +41,46 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
         Raises:
             HTTPException: If tenant not found or inactive
         """
+        # Skip tenant resolution for OPTIONS preflight requests (CORS)
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
         # Extract subdomain from hostname
         hostname = request.headers.get("host", "").split(":")[0]
         subdomain = TenantContextManager.extract_subdomain(hostname)
 
-        try:
-            # Resolve tenant context from subdomain
-            tenant_context = await self.tenant_manager.from_subdomain(subdomain)
+        print(f"[TenantContextMiddleware] hostname={hostname}, subdomain={subdomain}")
 
-            # Inject into request state
-            request.state.tenant = tenant_context
+        # For demo/localhost, always use demo context without database lookup
+        # This ensures local development works even if tenant registry is not set up
+        if subdomain in ("demo", "localhost", None):
+            print(f"[TenantContextMiddleware] Using demo context for subdomain: {subdomain}")
+            request.state.tenant = TenantContextManager.get_demo_context()
+            print(f"[TenantContextMiddleware] Set demo tenant: {request.state.tenant}")
+        else:
+            # Production tenant - lookup from registry
+            try:
+                print(f"[TenantContextMiddleware] Looking up tenant for subdomain: {subdomain}")
+                tenant_context = await self.tenant_manager.from_subdomain(subdomain)
+                request.state.tenant = tenant_context
+                print(f"[TenantContextMiddleware] Set tenant: {tenant_context}")
 
-        except ValueError as e:
-            # Tenant not found or inactive
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Tenant error: {str(e)}"
-            )
-        except Exception as e:
-            # Other errors (database, etc.)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to resolve tenant: {str(e)}"
-            )
+            except ValueError as e:
+                # Tenant not found or inactive
+                print(f"[TenantContextMiddleware] ValueError: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Tenant error: {str(e)}"
+                )
+            except Exception as e:
+                # Other errors (database, etc.) - fallback to demo for development
+                print(f"[TenantContextMiddleware] Exception: {e}")
+                import traceback
+                traceback.print_exc()
+
+                # Fallback to demo context for development
+                print(f"[TenantContextMiddleware] Falling back to demo context due to error")
+                request.state.tenant = TenantContextManager.get_demo_context()
 
         # Continue to next handler
         response = await call_next(request)

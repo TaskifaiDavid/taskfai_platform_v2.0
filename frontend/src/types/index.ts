@@ -1,0 +1,173 @@
+// User & Auth Types
+export interface User {
+  user_id: string
+  email: string
+  role: 'admin' | 'user'
+  tenant_id: string
+}
+
+export interface LoginRequest {
+  email: string
+  password: string
+}
+
+export interface RegisterRequest {
+  email: string
+  password: string
+  tenant_id: string
+}
+
+export interface AuthResponse {
+  access_token: string
+  token_type: string
+  user: User
+}
+
+// Upload Types
+export interface Upload {
+  batch_id: string
+  filename: string
+  status: 'pending' | 'processing' | 'completed' | 'failed'
+  uploaded_at: string
+  processed_at?: string
+  vendor_detected?: string
+  total_rows?: number
+  successful_rows?: number
+  failed_rows?: number
+}
+
+export interface UploadError {
+  row_number: number
+  error_message: string
+  raw_data?: Record<string, unknown>
+}
+
+// Chat Types
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+  timestamp?: string
+  sql_generated?: string
+}
+
+export interface ChatQueryRequest {
+  query: string
+  session_id?: string
+}
+
+export interface ChatQueryResponse {
+  response: string
+  sql_generated?: string
+  session_id: string
+}
+
+export interface Conversation {
+  conversation_id: string
+  session_id: string
+  messages: ChatMessage[]
+  created_at: string
+}
+
+// Dashboard Types
+export interface Dashboard {
+  config_id: string
+  dashboard_name: string
+  dashboard_type: 'tableau' | 'powerbi' | 'looker' | 'metabase' | 'other'
+  dashboard_url: string
+  is_primary: boolean
+  created_at: string
+  updated_at?: string
+}
+
+export interface DashboardCreateRequest {
+  dashboard_name: string
+  dashboard_type: Dashboard['dashboard_type']
+  dashboard_url: string
+  auth_token?: string
+  is_primary?: boolean
+}
+
+// Analytics Types
+export interface KPIs {
+  total_revenue: number
+  total_units: number
+  avg_price: number
+  top_products: Array<{
+    product_name: string
+    revenue: number
+    units: number
+  }>
+  top_resellers: Array<{
+    reseller_name: string
+    revenue: number
+  }>
+}
+
+export interface SalesFilter {
+  date_from?: string
+  date_to?: string
+  reseller_id?: string
+  product_id?: string
+  channel?: 'online' | 'offline'
+  page?: number
+  page_size?: number
+}
+
+export interface Sale {
+  sale_id: string
+  date: string
+  reseller_name: string
+  product_name: string
+  units_sold: number
+  revenue_eur: number
+  channel: 'online' | 'offline'
+}
+
+export interface SalesResponse {
+  sales: Sale[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface ExportRequest {
+  format: 'pdf' | 'csv' | 'excel'
+  date_from: string
+  date_to: string
+  filters?: Omit<SalesFilter, 'date_from' | 'date_to' | 'page' | 'page_size'>
+}
+
+export interface ExportResponse {
+  task_id: string
+  status: 'pending' | 'processing' | 'completed' | 'failed'
+  download_url?: string
+}
+
+// Tenant Types (Admin)
+export interface Tenant {
+  tenant_id: string
+  subdomain: string
+  company_name: string
+  is_active: boolean
+  created_at: string
+  last_activity?: string
+}
+
+export interface TenantCreateRequest {
+  subdomain: string
+  company_name: string
+  admin_email: string
+  admin_password: string
+}
+
+// Pagination
+export interface PaginationParams {
+  page?: number
+  page_size?: number
+}
+
+// API Error
+export interface APIError {
+  detail: string
+  status_code?: number
+}

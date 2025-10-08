@@ -55,7 +55,32 @@ def process_upload(self, batch_id: str, user_id: str) -> Dict[str, Any]:
         }).eq("batch_id", batch_id).execute()
 
         # Process based on vendor
-        if detected_vendor == "boxnox":
+        if detected_vendor == "demo":
+            from app.services.vendors.demo_processor import DemoProcessor
+            from app.services.data_inserter import DataInserter
+
+            processor = DemoProcessor()
+            process_result = processor.process(file_path, user_id, batch_id)
+
+            # Insert data
+            inserter = DataInserter(supabase)
+
+            # Check duplicates if in append mode
+            transformed_data = process_result["transformed_data"]
+            if batch["upload_mode"] == "append":
+                transformed_data = inserter.check_duplicates(user_id, "online_sales", transformed_data)
+
+            # Insert demo data into online_sales table
+            successful, failed = inserter.insert_online_sales(transformed_data, batch["upload_mode"])
+
+            result = {
+                "total_rows": process_result["total_rows"],
+                "successful_rows": successful,
+                "failed_rows": failed + process_result["failed_rows"],
+                "detected_vendor": detected_vendor,
+                "errors": process_result["errors"]
+            }
+        elif detected_vendor == "boxnox":
             from app.services.vendors.boxnox_processor import BoxnoxProcessor
             from app.services.data_inserter import DataInserter
 

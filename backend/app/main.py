@@ -6,7 +6,7 @@ Main FastAPI Application
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, uploads
+from app.api import auth, uploads, chat, dashboards, analytics, admin
 from app.core.config import settings
 from app.middleware.tenant_context import TenantContextMiddleware
 from app.middleware.auth import AuthMiddleware
@@ -31,18 +31,25 @@ app.add_middleware(
 )
 
 # Multi-tenant middleware stack (order matters!)
-# 1. Logging - outermost, logs all requests
+# IMPORTANT: Middlewares execute in REVERSE order (LIFO)
+# Added first = Executes last, Added last = Executes first
+
+# 1. Logging - outermost, logs all requests (executes last)
 app.add_middleware(RequestLoggingMiddleware)
 
-# 2. Tenant Context - extracts subdomain and resolves tenant
-app.add_middleware(TenantContextMiddleware)
-
-# 3. Authentication - validates JWT and checks tenant match
+# 2. Authentication - validates JWT and checks tenant match (executes second)
 app.add_middleware(AuthMiddleware)
+
+# 3. Tenant Context - extracts subdomain and resolves tenant (executes FIRST)
+app.add_middleware(TenantContextMiddleware)
 
 # Include routers
 app.include_router(auth.router, prefix="/api")
 app.include_router(uploads.router, prefix="/api")
+app.include_router(chat.router, prefix="/api")
+app.include_router(dashboards.router, prefix="/api")
+app.include_router(analytics.router, prefix="/api")
+app.include_router(admin.router, prefix="/api")
 
 
 @app.get("/")
