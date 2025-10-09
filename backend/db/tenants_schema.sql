@@ -18,8 +18,8 @@ CREATE TABLE IF NOT EXISTS tenants (
     subdomain VARCHAR(50) UNIQUE NOT NULL,
 
     -- Database connection (encrypted)
-    database_url TEXT NOT NULL,           -- Encrypted Supabase URL
-    database_credentials TEXT NOT NULL,   -- Encrypted JSON with keys
+    database_url TEXT NOT NULL,               -- Supabase project URL (not encrypted)
+    encrypted_credentials TEXT NOT NULL,      -- Encrypted JSON with anon_key and service_key
 
     -- Status
     is_active BOOLEAN DEFAULT TRUE,
@@ -188,15 +188,15 @@ INSERT INTO tenants (
     company_name,
     subdomain,
     database_url,
-    database_credentials,
+    encrypted_credentials,
     is_active,
     metadata
 ) VALUES (
     'demo-tenant-id-00000000-0000-0000',
     'TaskifAI Demo',
     'demo',
-    'PLACEHOLDER_ENCRYPT_LATER',  -- Should be encrypted with actual Supabase URL
-    'PLACEHOLDER_ENCRYPT_LATER',  -- Should be encrypted with actual credentials JSON
+    'PLACEHOLDER_SUPABASE_URL',  -- Replace with actual Supabase project URL
+    'PLACEHOLDER_ENCRYPT_LATER',  -- Should be encrypted with credentials JSON: {"anon_key": "...", "service_key": "..."}
     TRUE,
     '{"type": "demo", "description": "Demo tenant for development and testing"}'::jsonb
 ) ON CONFLICT (subdomain) DO NOTHING;
@@ -249,5 +249,5 @@ FROM tenants;
 -- ============================================
 
 COMMENT ON TABLE tenants IS 'Master tenant registry for multi-tenant architecture';
-COMMENT ON COLUMN tenants.database_url IS 'Encrypted Supabase project URL';
-COMMENT ON COLUMN tenants.database_credentials IS 'Encrypted JSON containing anon_key and service_key';
+COMMENT ON COLUMN tenants.database_url IS 'Supabase project URL (not encrypted, used for connection)';
+COMMENT ON COLUMN tenants.encrypted_credentials IS 'Encrypted JSON containing anon_key and service_key (pgp_sym_encrypt)';
