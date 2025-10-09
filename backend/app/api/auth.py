@@ -12,6 +12,7 @@ from supabase import create_client
 from app.core.dependencies import SupabaseClient
 from app.core.security import create_access_token, get_password_hash, verify_password
 from app.core.config import settings
+from app.core.rate_limiter import get_rate_limiter
 from app.models.user import AuthResponse, Token, UserCreate, UserLogin, UserResponse
 from app.models.tenant import (
     TenantDiscoveryRequest,
@@ -149,11 +150,16 @@ async def logout():
     response_model=Union[TenantDiscoverySingleResponse, TenantDiscoveryMultiResponse],
     status_code=status.HTTP_200_OK
 )
-async def discover_tenant(discovery_request: TenantDiscoveryRequest):
+async def discover_tenant(
+    discovery_request: TenantDiscoveryRequest,
+    request: Request
+):
     """
     Discover tenant(s) for user email address
 
     Used by central login portal to route user to correct tenant subdomain.
+
+    **Rate Limit**: 10 requests per minute per IP (prevents email enumeration)
 
     **Single Tenant User:**
     - Returns redirect URL to tenant subdomain login page
@@ -166,6 +172,23 @@ async def discover_tenant(discovery_request: TenantDiscoveryRequest):
 
     - **email**: User email address
     """
+    # Rate limiting: 10 requests per minute per IP
+    client_ip = request.client.host if request.client else "unknown"
+    rate_limiter = get_rate_limiter()
+
+    is_limited, retry_after = rate_limiter.is_rate_limited(
+        key=f"discover:{client_ip}",
+        max_requests=10,
+        window_seconds=60
+    )
+
+    if is_limited:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
     try:
         # Create tenant registry client
         registry_client = create_client(
