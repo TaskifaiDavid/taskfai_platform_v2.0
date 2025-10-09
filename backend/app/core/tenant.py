@@ -46,9 +46,29 @@ class TenantContextManager:
 
     def __init__(self):
         """Initialize with tenant registry"""
-        # Import here to avoid circular dependency
-        from app.services.tenant.registry import tenant_registry
-        self.registry = tenant_registry
+        self._registry_service = None
+
+    def _get_registry_service(self):
+        """Lazy initialization of registry service"""
+        if self._registry_service is None:
+            try:
+                from supabase import create_client
+                from app.core.config import settings
+                from app.services.tenant_registry import TenantRegistryService
+
+                # Create registry client
+                registry_client = create_client(
+                    settings.tenant_registry_url,
+                    settings.tenant_registry_service_key
+                )
+
+                # Create service
+                self._registry_service = TenantRegistryService(registry_client)
+            except Exception as e:
+                print(f"[TenantContextManager] Failed to initialize registry service: {e}")
+                return None
+
+        return self._registry_service
 
     @staticmethod
     def get_demo_context() -> TenantContext:
@@ -77,27 +97,44 @@ class TenantContextManager:
         if subdomain in ("demo", "localhost", None):
             return self.get_demo_context()
 
-        # Lookup tenant from registry
-        tenant = await self.registry.get_by_subdomain(subdomain)
+        # Get registry service
+        registry = self._get_registry_service()
+        if registry is None:
+            # Fallback to demo if registry not available
+            print(f"[TenantContextManager] Registry not available, using demo context")
+            return self.get_demo_context()
 
-        if not tenant:
-            raise ValueError(f"Tenant not found for subdomain: {subdomain}")
+        try:
+            # Lookup tenant from registry (synchronous method)
+            tenant = registry.get_tenant_by_subdomain(subdomain)
 
-        if not tenant.is_active:
-            raise ValueError(f"Tenant '{subdomain}' is suspended")
+            if not tenant:
+                raise ValueError(f"Tenant not found for subdomain: {subdomain}")
 
-        # Get decrypted credentials
-        credentials = self.registry.get_decrypted_credentials(tenant)
+            if not tenant.is_active:
+                raise ValueError(f"Tenant '{subdomain}' is suspended")
 
-        return TenantContext(
-            tenant_id=tenant.tenant_id,
-            company_name=tenant.company_name,
-            subdomain=tenant.subdomain,
-            database_url=credentials["database_url"],
-            database_key=credentials["service_key"],
-            is_active=tenant.is_active,
-            metadata=tenant.metadata or {}
-        )
+            # Parse decrypted credentials from tenant.encrypted_credentials
+            import json
+            try:
+                credentials = json.loads(tenant.encrypted_credentials)
+            except (json.JSONDecodeError, TypeError):
+                raise ValueError(f"Invalid credentials format for tenant: {subdomain}")
+
+            return TenantContext(
+                tenant_id=str(tenant.tenant_id),
+                company_name=tenant.company_name,
+                subdomain=tenant.subdomain,
+                database_url=tenant.database_url,
+                database_key=credentials.get("service_key"),
+                is_active=tenant.is_active,
+                metadata={}
+            )
+        except ValueError:
+            raise
+        except Exception as e:
+            print(f"[TenantContextManager] Error looking up tenant: {e}")
+            raise ValueError(f"Failed to lookup tenant: {str(e)}")
 
     @staticmethod
     def extract_subdomain(hostname: str) -> Optional[str]:

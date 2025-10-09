@@ -3,14 +3,22 @@ Authentication endpoints for user registration and login
 """
 
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Union
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from supabase import create_client
 
 from app.core.dependencies import SupabaseClient
 from app.core.security import create_access_token, get_password_hash, verify_password
+from app.core.config import settings
 from app.models.user import AuthResponse, Token, UserCreate, UserLogin, UserResponse
+from app.models.tenant import (
+    TenantDiscoveryRequest,
+    TenantDiscoverySingleResponse,
+    TenantDiscoveryMultiResponse
+)
+from app.services.tenant_discovery import TenantDiscoveryService
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -134,3 +142,53 @@ async def logout():
     Logout user (client should discard token)
     """
     return {"message": "Successfully logged out"}
+
+
+@router.post(
+    "/discover-tenant",
+    response_model=Union[TenantDiscoverySingleResponse, TenantDiscoveryMultiResponse],
+    status_code=status.HTTP_200_OK
+)
+async def discover_tenant(discovery_request: TenantDiscoveryRequest):
+    """
+    Discover tenant(s) for user email address
+
+    Used by central login portal to route user to correct tenant subdomain.
+
+    **Single Tenant User:**
+    - Returns redirect URL to tenant subdomain login page
+
+    **Multi-Tenant User:**
+    - Returns list of tenants for user selection
+
+    **No Tenant:**
+    - Returns 404 if email not found in any tenant
+
+    - **email**: User email address
+    """
+    try:
+        # Create tenant registry client
+        registry_client = create_client(
+            settings.tenant_registry_url,
+            settings.tenant_registry_anon_key
+        )
+
+        # Initialize discovery service
+        discovery_service = TenantDiscoveryService(registry_client)
+
+        # Discover tenant(s)
+        result = discovery_service.discover_tenant(discovery_request)
+
+        return result
+
+    except ValueError as e:
+        # Email not found in any tenant
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to discover tenant: {str(e)}"
+        )

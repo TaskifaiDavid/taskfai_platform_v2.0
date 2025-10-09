@@ -1,0 +1,191 @@
+openapi: 3.0.3
+info:
+  title: Tenant Discovery API
+  version: 1.0.0
+  description: |
+    API for discovering which tenant(s) a user belongs to based on email.
+    Used by central login portal (app.taskifai.com) for tenant routing.
+
+servers:
+  - url: https://api.taskifai.com/api
+    description: Production API
+  - url: http://localhost:8000/api
+    description: Development API
+
+paths:
+  /auth/discover-tenant:
+    post:
+      summary: Discover tenant(s) for user email
+      description: |
+        Queries user_tenants registry to find which tenant(s) the user belongs to.
+        Returns single tenant with redirect URL for automatic routing,
+        or multiple tenants for super admin to select from.
+      operationId: discoverTenant
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TenantDiscoveryRequest'
+            examples:
+              regularUser:
+                summary: Regular user email
+                value:
+                  email: user@customer1.com
+              superAdmin:
+                summary: Super admin email
+                value:
+                  email: david@taskifai.com
+      responses:
+        '200':
+          description: Tenant(s) found - see response type
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/SingleTenantResponse'
+                  - $ref: '#/components/schemas/MultiTenantResponse'
+              examples:
+                singleTenant:
+                  summary: Single tenant found
+                  value:
+                    subdomain: customer1
+                    company_name: Customer Company Inc
+                    redirect_url: https://customer1.taskifai.com/login?email=user@customer1.com
+                multiTenant:
+                  summary: Multiple tenants (super admin)
+                  value:
+                    tenants:
+                      - subdomain: demo
+                        company_name: TaskifAI Demo
+                      - subdomain: customer1
+                        company_name: Customer Company Inc
+                      - subdomain: customer2
+                        company_name: Another Customer
+        '404':
+          description: No tenant found for email
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                detail: No tenant found for this email
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                detail: Too many requests. Please try again in 60 seconds.
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+              example:
+                detail:
+                  - loc: [body, email]
+                    msg: value is not a valid email address
+                    type: value_error.email
+
+components:
+  schemas:
+    TenantDiscoveryRequest:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+          description: User email address to lookup
+          example: user@customer1.com
+
+    SingleTenantResponse:
+      type: object
+      required:
+        - subdomain
+        - company_name
+        - redirect_url
+      properties:
+        subdomain:
+          type: string
+          pattern: '^[a-z0-9-]+$'
+          description: Tenant subdomain identifier
+          example: customer1
+        company_name:
+          type: string
+          description: Tenant company name
+          example: Customer Company Inc
+        redirect_url:
+          type: string
+          format: uri
+          description: Full URL to redirect user to for login
+          example: https://customer1.taskifai.com/login?email=user@customer1.com
+
+    MultiTenantResponse:
+      type: object
+      required:
+        - tenants
+      properties:
+        tenants:
+          type: array
+          description: List of tenants user has access to
+          items:
+            $ref: '#/components/schemas/TenantOption'
+          minItems: 2
+
+    TenantOption:
+      type: object
+      required:
+        - subdomain
+        - company_name
+      properties:
+        subdomain:
+          type: string
+          pattern: '^[a-z0-9-]+$'
+          description: Tenant subdomain identifier
+          example: customer1
+        company_name:
+          type: string
+          description: Tenant company name for display
+          example: Customer Company Inc
+
+    Error:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+          description: Error message
+          example: No tenant found for this email
+
+    ValidationError:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            properties:
+              loc:
+                type: array
+                items:
+                  type: string
+              msg:
+                type: string
+              type:
+                type: string
+
+  securitySchemes: {}
+
+tags:
+  - name: Authentication
+    description: Tenant discovery and routing

@@ -37,15 +37,17 @@ def create_access_token(
     data: dict,
     tenant_id: str,
     subdomain: str,
+    role: Optional[str] = None,
     expires_delta: Optional[timedelta] = None
 ) -> str:
     """
     Create JWT access token with tenant claims
 
     Args:
-        data: Payload data to encode in token (user_id, email, role)
+        data: Payload data to encode in token (user_id, email)
         tenant_id: Tenant ID for multi-tenant routing
         subdomain: Tenant subdomain for validation
+        role: User role (member, admin, super_admin) for authorization
         expires_delta: Optional custom expiration time
 
     Returns:
@@ -55,7 +57,8 @@ def create_access_token(
         >>> token = create_access_token(
         ...     {"sub": "user_id", "email": "user@example.com"},
         ...     tenant_id="tenant_123",
-        ...     subdomain="customer1"
+        ...     subdomain="customer1",
+        ...     role="admin"
         ... )
     """
     to_encode = data.copy()
@@ -65,6 +68,10 @@ def create_access_token(
         "tenant_id": tenant_id,
         "subdomain": subdomain,
     })
+
+    # Add role claim if provided
+    if role:
+        to_encode["role"] = role
 
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta

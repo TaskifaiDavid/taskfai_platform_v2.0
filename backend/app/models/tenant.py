@@ -35,23 +35,24 @@ class TenantBase(BaseModel):
 class TenantCreate(TenantBase):
     """Model for creating a new tenant"""
     database_url: str = Field(..., description="Supabase project URL")
-    database_anon_key: str = Field(..., description="Supabase anon key")
-    database_service_key: str = Field(..., description="Supabase service key")
-    admin_email: Optional[str] = Field(None, description="Initial admin user email")
+    database_credentials: 'TenantCredentials' = Field(..., description="Database credentials")
+    admin_email: str = Field(..., description="Initial admin user email")
     admin_name: Optional[str] = Field(None, description="Initial admin user name")
     metadata: Optional[Dict] = None
 
     @validator('database_url')
     def validate_database_url(cls, v):
         """Validate database URL format"""
-        if not v.startswith(('postgresql://', 'postgres://')):
-            raise ValueError('Database URL must be a valid PostgreSQL connection string')
+        if not v.startswith(('https://', 'http://')):
+            raise ValueError('Database URL must be a valid Supabase URL (https://)')
         return v
 
 
 class TenantUpdate(BaseModel):
     """Model for updating tenant"""
     company_name: Optional[str] = None
+    database_url: Optional[str] = None
+    database_credentials: Optional['TenantCredentials'] = None
     is_active: Optional[bool] = None
     metadata: Optional[Dict] = None
 
@@ -94,8 +95,17 @@ class Tenant(TenantInDB):
         return cls(**data)
 
 
-# Alias for backwards compatibility
-TenantResponse = Tenant
+class TenantResponse(BaseModel):
+    """Public tenant response model (no sensitive data)"""
+    from uuid import UUID as UUIDType
+
+    tenant_id: UUIDType = Field(..., description="Tenant unique ID")
+    subdomain: str = Field(..., description="Tenant subdomain")
+    company_name: str = Field(..., description="Company name")
+    database_url: str = Field(..., description="Database URL")
+    is_active: bool = Field(..., description="Whether tenant is active")
+    created_at: datetime = Field(..., description="Creation timestamp")
+    updated_at: Optional[datetime] = Field(None, description="Last update timestamp")
 
 
 class TenantConfig(BaseModel):
@@ -117,3 +127,35 @@ class SubdomainCheck(BaseModel):
     subdomain: str
     available: bool
     reason: Optional[str] = None
+
+
+# Tenant Discovery Models
+# ========================
+
+class TenantCredentials(BaseModel):
+    """Database credentials for tenant"""
+    anon_key: str = Field(..., description="Supabase anon key")
+    service_key: str = Field(..., description="Supabase service key")
+
+
+class TenantDiscoveryRequest(BaseModel):
+    """Request model for tenant discovery"""
+    email: str = Field(..., description="User email address")
+
+
+class TenantOption(BaseModel):
+    """Tenant option for multi-tenant selection"""
+    subdomain: str = Field(..., description="Tenant subdomain")
+    company_name: str = Field(..., description="Company name")
+
+
+class TenantDiscoverySingleResponse(BaseModel):
+    """Response when user belongs to single tenant"""
+    subdomain: str = Field(..., description="Tenant subdomain")
+    company_name: str = Field(..., description="Company name")
+    redirect_url: str = Field(..., description="Login redirect URL")
+
+
+class TenantDiscoveryMultiResponse(BaseModel):
+    """Response when user belongs to multiple tenants"""
+    tenants: list[TenantOption] = Field(..., description="List of tenant options")
