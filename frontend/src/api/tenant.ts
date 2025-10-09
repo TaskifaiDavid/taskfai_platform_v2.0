@@ -53,7 +53,7 @@ export async function discoverTenant(email: string): Promise<TenantDiscoveryResp
     '/auth/discover-tenant',
     { email }
   )
-  return response.data
+  return response
 }
 
 /**

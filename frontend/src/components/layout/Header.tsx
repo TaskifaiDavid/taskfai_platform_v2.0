@@ -1,4 +1,4 @@
-import { Bell, User, Menu, Search, ChevronRight } from 'lucide-react'
+import { Bell, Menu, Search, ChevronRight } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useUIStore } from '@/stores/ui'
 import { useLocation } from 'react-router-dom'

@@ -16,9 +16,9 @@ import {
   isSingleTenantLogin,
   isMultiTenantLogin,
   storeAccessToken,
-  storeTempToken,
-  type TenantOption
+  storeTempToken
 } from '@/api/loginAndDiscover'
+import type { TenantOption } from '@/api/tenant'
 
 export function LoginPortal() {
   const [email, setEmail] = useState('')
