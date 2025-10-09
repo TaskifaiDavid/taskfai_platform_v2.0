@@ -24,11 +24,32 @@ class Settings(BaseSettings):
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 1440  # 24 hours
 
-    # Database
+    # Database (Dual Purpose: Tenant Registry + Demo Tenant Data)
+    # NOTE: In production, tenant registry would be a separate database
+    # For development, we use the same Supabase project for both:
+    # 1. Tenant registry tables (tenants, user_tenants, tenant_configs)
+    # 2. Demo tenant application data (users, products, orders, etc.)
     supabase_url: str
     supabase_anon_key: str
     supabase_service_key: str
     database_url: Optional[str] = None
+
+    # Tenant Registry (uses same Supabase project in development)
+    # In production: Set these to a separate Supabase project URL/keys
+    @property
+    def tenant_registry_url(self) -> str:
+        """Tenant registry database URL (defaults to main supabase_url in dev)"""
+        return self.supabase_url
+
+    @property
+    def tenant_registry_anon_key(self) -> str:
+        """Tenant registry anon key (defaults to main supabase_anon_key in dev)"""
+        return self.supabase_anon_key
+
+    @property
+    def tenant_registry_service_key(self) -> str:
+        """Tenant registry service key (defaults to main supabase_service_key in dev)"""
+        return self.supabase_service_key
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"

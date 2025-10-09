@@ -45,6 +45,15 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
         if request.method == "OPTIONS":
             return await call_next(request)
 
+        # Skip tenant resolution for central login endpoints (app.taskifai.com)
+        # These endpoints don't require tenant context
+        skip_paths = [
+            "/api/auth/login-and-discover",
+            "/api/auth/discover-tenant"
+        ]
+        if request.url.path in skip_paths:
+            return await call_next(request)
+
         # Extract subdomain from hostname
         hostname = request.headers.get("host", "").split(":")[0]
         subdomain = TenantContextManager.extract_subdomain(hostname)

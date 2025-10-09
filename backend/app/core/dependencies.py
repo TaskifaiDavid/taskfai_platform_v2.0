@@ -146,7 +146,73 @@ async def require_admin(
     return user
 
 
+async def require_super_admin(
+    credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)]
+) -> dict:
+    """
+    Require super_admin role for endpoint
+
+    Validates JWT token and checks for super_admin role claim.
+    Used for tenant management endpoints.
+
+    Args:
+        credentials: HTTP Bearer token from request header
+
+    Returns:
+        Token payload with user information
+
+    Raises:
+        HTTPException: If token invalid or role is not super_admin
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    forbidden_exception = HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Super admin access required"
+    )
+
+    # Decode token
+    token = credentials.credentials
+    payload = decode_access_token(token)
+
+    if payload is None:
+        raise credentials_exception
+
+    # Extract and validate role
+    role = payload.get("role")
+    if role != "super_admin":
+        raise forbidden_exception
+
+    return payload
+
+
+async def get_user_role_from_token(
+    credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)]
+) -> Optional[str]:
+    """
+    Extract user role from JWT token
+
+    Args:
+        credentials: HTTP Bearer token from request header
+
+    Returns:
+        User role (member, admin, super_admin) or None if not present
+    """
+    token = credentials.credentials
+    payload = decode_access_token(token)
+
+    if payload is None:
+        return None
+
+    return payload.get("role")
+
+
 # Type alias for dependency injection
 CurrentUser = Annotated[dict, Depends(get_current_user)]
 SupabaseClient = Annotated[Client, Depends(get_supabase_client)]
 CurrentTenant = Annotated[TenantContext, Depends(get_tenant_context)]
+SuperAdmin = Annotated[dict, Depends(require_super_admin)]

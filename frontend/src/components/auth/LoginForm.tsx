@@ -6,8 +6,12 @@ import { Label } from '@/components/ui/label'
 import { useUIStore } from '@/stores/ui'
 import { Loader2, Github } from 'lucide-react'
 
-export function LoginForm() {
-  const [email, setEmail] = useState('')
+interface LoginFormProps {
+  initialEmail?: string
+}
+
+export function LoginForm({ initialEmail }: LoginFormProps) {
+  const [email, setEmail] = useState(initialEmail || '')
   const [password, setPassword] = useState('')
   const login = useLogin()
   const addNotification = useUIStore((state) => state.addNotification)
