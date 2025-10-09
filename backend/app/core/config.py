@@ -65,16 +65,22 @@ class Settings(BaseSettings):
 
     # File Upload
     max_upload_size: int = 100 * 1024 * 1024  # 100MB
-    allowed_extensions: list[str] = [".xlsx", ".xls", ".csv"]
+    allowed_extensions_str: str = ".xlsx,.xls,.csv"  # Comma-separated for env vars
     upload_dir: str = "/tmp/uploads"
 
-    # CORS
-    allowed_origins: list[str] = [
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "http://localhost:3002",
-        "http://localhost:5173",
-    ]
+    # CORS (stored as comma-separated string for DigitalOcean env vars)
+    # Pydantic v2 tries to JSON parse list[str], but env vars are plain comma-separated strings
+    allowed_origins_str: str = "http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:5173"
+
+    @property
+    def allowed_extensions(self) -> list[str]:
+        """Parse comma-separated extensions into list"""
+        return [ext.strip() for ext in self.allowed_extensions_str.split(",")]
+
+    @property
+    def allowed_origins(self) -> list[str]:
+        """Parse comma-separated origins into list"""
+        return [origin.strip() for origin in self.allowed_origins_str.split(",")]
 
     # Pydantic v2 configuration
     model_config = SettingsConfigDict(
