@@ -33,7 +33,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         "/api/redoc",
         "/openapi.json",
         "/api/auth/login",
-        "/api/auth/register"
+        "/api/auth/register",
+        "/api/auth/login-and-discover",  # Central login (app.taskifai.com)
+        "/api/auth/discover-tenant"  # Tenant discovery
     ]
 
     async def dispatch(self, request: Request, call_next) -> Response:

@@ -48,6 +48,8 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
         # Skip tenant resolution for central login endpoints (app.taskifai.com)
         # These endpoints don't require tenant context
         skip_paths = [
+            "/health",  # Health check endpoint (App Platform & Docker)
+            "/",  # Root endpoint
             "/api/auth/login-and-discover",
             "/api/auth/discover-tenant"
         ]
