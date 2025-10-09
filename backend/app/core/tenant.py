@@ -139,7 +139,7 @@ class TenantContextManager:
     @staticmethod
     def extract_subdomain(hostname: str) -> Optional[str]:
         """
-        Extract subdomain from hostname
+        Extract and validate subdomain from hostname
 
         Examples:
             customer1.taskifai.com → "customer1"
@@ -151,8 +151,16 @@ class TenantContextManager:
             hostname: Request hostname
 
         Returns:
-            Subdomain or None if main domain/localhost
+            Subdomain or None if main domain/localhost/invalid
+
+        Security:
+            - Validates subdomain matches ^[a-z0-9-]+$ pattern
+            - Rejects leading/trailing hyphens
+            - Normalizes uppercase to lowercase
+            - Prevents path traversal, XSS, SQL injection attempts
         """
+        import re
+
         # Handle localhost
         if "localhost" in hostname or hostname.startswith("127.0.0.1"):
             return "demo"  # Use demo for local development
@@ -160,12 +168,28 @@ class TenantContextManager:
         # Split hostname
         parts = hostname.split('.')
 
-        # If 3+ parts, first part is subdomain
-        if len(parts) >= 3:
-            return parts[0]
+        # If less than 3 parts, no subdomain (main domain or invalid)
+        if len(parts) < 3:
+            return None
 
-        # Main domain or invalid
-        return None
+        # Extract first part as subdomain candidate
+        subdomain = parts[0]
+
+        # Normalize to lowercase
+        subdomain = subdomain.lower()
+
+        # Validate subdomain format:
+        # - Only lowercase alphanumeric and hyphens
+        # - No leading or trailing hyphens
+        # - Length between 1 and 50 characters
+        subdomain_pattern = re.compile(r'^[a-z0-9]([a-z0-9-]{0,48}[a-z0-9])?$')
+
+        if not subdomain_pattern.match(subdomain):
+            # Invalid subdomain format - reject
+            print(f"[TenantContextManager] Invalid subdomain format: {subdomain}")
+            return None
+
+        return subdomain
 
 
 # Global tenant context manager instance
