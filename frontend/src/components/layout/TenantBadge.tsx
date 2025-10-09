@@ -1,4 +1,3 @@
-import { Badge } from '@/components/ui/badge'
 import { useTenant } from '@/hooks/useTenant'
 import { Building2 } from 'lucide-react'
 
