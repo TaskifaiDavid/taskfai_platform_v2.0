@@ -58,9 +58,9 @@ class Settings(BaseSettings):
     openai_api_key: str
     openai_model: str = "gpt-4o-mini"
 
-    # SendGrid
-    sendgrid_api_key: str
-    sendgrid_from_email: str
+    # SendGrid (Optional - email notifications disabled if not configured)
+    sendgrid_api_key: str = ""
+    sendgrid_from_email: str = ""
     sendgrid_from_name: str = "TaskifAI"
 
     # File Upload
