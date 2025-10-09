@@ -4,6 +4,7 @@ Pydantic models for tenant management
 
 from datetime import datetime
 from typing import Optional, Dict
+from uuid import UUID
 from pydantic import BaseModel, Field, validator
 import re
 
@@ -97,9 +98,7 @@ class Tenant(TenantInDB):
 
 class TenantResponse(BaseModel):
     """Public tenant response model (no sensitive data)"""
-    from uuid import UUID as UUIDType
-
-    tenant_id: UUIDType = Field(..., description="Tenant unique ID")
+    tenant_id: UUID = Field(..., description="Tenant unique ID")
     subdomain: str = Field(..., description="Tenant subdomain")
     company_name: str = Field(..., description="Company name")
     database_url: str = Field(..., description="Database URL")
@@ -159,3 +158,28 @@ class TenantDiscoverySingleResponse(BaseModel):
 class TenantDiscoveryMultiResponse(BaseModel):
     """Response when user belongs to multiple tenants"""
     tenants: list[TenantOption] = Field(..., description="List of tenant options")
+
+
+# Login and Discover Models (Flow B)
+# ===================================
+
+class LoginAndDiscoverRequest(BaseModel):
+    """Request model for combined login + tenant discovery"""
+    email: str = Field(..., description="User email address")
+    password: str = Field(..., description="User password")
+
+
+class LoginAndDiscoverSingleResponse(BaseModel):
+    """Response when user belongs to single tenant"""
+    type: str = Field(default="single", description="Response type")
+    subdomain: str = Field(..., description="Tenant subdomain")
+    company_name: str = Field(..., description="Company name")
+    redirect_url: str = Field(..., description="Dashboard redirect URL")
+    access_token: str = Field(..., description="JWT access token")
+
+
+class LoginAndDiscoverMultiResponse(BaseModel):
+    """Response when user belongs to multiple tenants"""
+    type: str = Field(default="multi", description="Response type")
+    tenants: list[TenantOption] = Field(..., description="List of tenant options")
+    temp_token: str = Field(..., description="Temporary token for tenant selection")

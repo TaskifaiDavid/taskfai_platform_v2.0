@@ -17,9 +17,13 @@ from app.models.user import AuthResponse, Token, UserCreate, UserLogin, UserResp
 from app.models.tenant import (
     TenantDiscoveryRequest,
     TenantDiscoverySingleResponse,
-    TenantDiscoveryMultiResponse
+    TenantDiscoveryMultiResponse,
+    LoginAndDiscoverRequest,
+    LoginAndDiscoverSingleResponse,
+    LoginAndDiscoverMultiResponse
 )
 from app.services.tenant_discovery import TenantDiscoveryService
+from app.services.tenant_auth_discovery import TenantAuthDiscoveryService
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -214,4 +218,80 @@ async def discover_tenant(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to discover tenant: {str(e)}"
+        )
+
+
+@router.post(
+    "/login-and-discover",
+    response_model=Union[LoginAndDiscoverSingleResponse, LoginAndDiscoverMultiResponse],
+    status_code=status.HTTP_200_OK
+)
+async def login_and_discover(
+    login_request: LoginAndDiscoverRequest,
+    request: Request
+):
+    """
+    Combined authentication + tenant discovery endpoint (Flow B)
+
+    Authenticates user credentials and discovers associated tenants in single request.
+    Used by central login portal at app.taskifai.com.
+
+    **Rate Limit**: 10 requests per minute per IP (prevents brute force attacks)
+
+    **Single Tenant User:**
+    - Returns JWT token + redirect URL to tenant dashboard
+    - User is logged in and redirected immediately
+
+    **Multi-Tenant User:**
+    - Returns temporary token + list of tenants for selection
+    - User selects tenant, then exchanges temp token for real token
+
+    **Authentication Failure:**
+    - Returns 401 if credentials invalid or user not found
+
+    - **email**: User email address
+    - **password**: User password
+    """
+    # Rate limiting: 10 requests per minute per IP
+    client_ip = request.client.host if request.client else "unknown"
+    rate_limiter = get_rate_limiter()
+
+    is_limited, retry_after = rate_limiter.is_rate_limited(
+        key=f"login:{client_ip}",
+        max_requests=10,
+        window_seconds=60
+    )
+
+    if is_limited:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
+
+    try:
+        # Create tenant registry client
+        registry_client = create_client(
+            settings.tenant_registry_url,
+            settings.tenant_registry_anon_key
+        )
+
+        # Initialize auth discovery service
+        auth_discovery_service = TenantAuthDiscoveryService(registry_client)
+
+        # Authenticate and discover tenant(s)
+        result = auth_discovery_service.login_and_discover(login_request)
+
+        return result
+
+    except ValueError as e:
+        # Authentication failure or no tenants found
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Login failed: {str(e)}"
         )

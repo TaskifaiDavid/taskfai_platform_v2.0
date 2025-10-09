@@ -35,45 +35,56 @@ def get_password_hash(password: str) -> str:
 
 def create_access_token(
     data: dict,
-    tenant_id: str,
-    subdomain: str,
+    tenant_id: Optional[str] = None,
+    subdomain: Optional[str] = None,
     role: Optional[str] = None,
+    expires_minutes: Optional[int] = None,
     expires_delta: Optional[timedelta] = None
 ) -> str:
     """
-    Create JWT access token with tenant claims
+    Create JWT access token with optional tenant claims
 
     Args:
         data: Payload data to encode in token (user_id, email)
-        tenant_id: Tenant ID for multi-tenant routing
-        subdomain: Tenant subdomain for validation
+        tenant_id: Optional tenant ID for multi-tenant routing
+        subdomain: Optional tenant subdomain for validation
         role: User role (member, admin, super_admin) for authorization
-        expires_delta: Optional custom expiration time
+        expires_minutes: Optional expiration time in minutes (overrides expires_delta)
+        expires_delta: Optional custom expiration timedelta
 
     Returns:
-        Encoded JWT token string with tenant claims
+        Encoded JWT token string with tenant claims (if provided)
 
     Example:
+        >>> # Full token with tenant
         >>> token = create_access_token(
         ...     {"sub": "user_id", "email": "user@example.com"},
         ...     tenant_id="tenant_123",
         ...     subdomain="customer1",
         ...     role="admin"
         ... )
+        >>> # Temporary token without tenant (multi-tenant user)
+        >>> temp_token = create_access_token(
+        ...     {"sub": "user_id", "email": "user@example.com", "temp": True},
+        ...     expires_minutes=5
+        ... )
     """
     to_encode = data.copy()
 
-    # Add tenant claims for multi-tenant security
-    to_encode.update({
-        "tenant_id": tenant_id,
-        "subdomain": subdomain,
-    })
+    # Add tenant claims for multi-tenant security (if provided)
+    if tenant_id:
+        to_encode["tenant_id"] = tenant_id
+    if subdomain:
+        to_encode["subdomain"] = subdomain
 
     # Add role claim if provided
     if role:
         to_encode["role"] = role
 
-    if expires_delta:
+    # Determine expiration time
+    if expires_minutes:
+        expire = datetime.now(timezone.utc) + timedelta(minutes=expires_minutes)
+    elif expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         expire = datetime.now(timezone.utc) + timedelta(

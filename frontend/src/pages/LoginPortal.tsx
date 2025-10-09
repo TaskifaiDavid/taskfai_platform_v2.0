@@ -1,26 +1,28 @@
 /**
- * Login Portal - Central Entry Point
+ * Login Portal - Central Entry Point (Flow B)
  *
- * Handles tenant discovery for app.taskifai.com
- * Routes users to their organization's subdomain based on email
+ * Combined authentication + tenant discovery at app.taskifai.com
+ * User enters email + password, system authenticates and routes to tenant
  */
 
 import { useState, FormEvent } from 'react'
-import { Mail, Loader2, AlertCircle } from 'lucide-react'
+import { Mail, Lock, Loader2, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
 import { TenantSelector } from '@/components/auth/TenantSelector'
 import {
-  discoverTenant,
-  isSingleTenantResponse,
-  isMultiTenantResponse,
-  isValidTenantUrl,
+  loginAndDiscover,
+  isSingleTenantLogin,
+  isMultiTenantLogin,
+  storeAccessToken,
+  storeTempToken,
   type TenantOption
-} from '@/api/tenant'
+} from '@/api/loginAndDiscover'
 
 export function LoginPortal() {
   const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [tenants, setTenants] = useState<TenantOption[] | null>(null)
@@ -31,24 +33,21 @@ export function LoginPortal() {
     setLoading(true)
 
     try {
-      const response = await discoverTenant(email)
+      const response = await loginAndDiscover(email, password)
 
-      // Single tenant → auto-redirect
-      if (isSingleTenantResponse(response)) {
-        // Validate redirect URL for security
-        if (!isValidTenantUrl(response.redirect_url)) {
-          setError('Invalid tenant URL received. Please contact support.')
-          setLoading(false)
-          return
-        }
+      // Single tenant → store token and redirect to dashboard
+      if (isSingleTenantLogin(response)) {
+        // Store access token
+        storeAccessToken(response.access_token)
 
-        // Redirect to tenant login page
+        // Redirect to tenant dashboard
         window.location.href = response.redirect_url
         return
       }
 
-      // Multiple tenants → show selector
-      if (isMultiTenantResponse(response)) {
+      // Multiple tenants → store temp token and show selector
+      if (isMultiTenantLogin(response)) {
+        storeTempToken(response.temp_token)
         setTenants(response.tenants)
         setLoading(false)
         return
@@ -60,16 +59,8 @@ export function LoginPortal() {
     } catch (err: any) {
       setLoading(false)
 
-      // Handle 404 - email not found
-      if (err.response?.status === 404) {
-        setError('No account found with this email address.')
-        return
-      }
-
-      // Handle other errors
-      if (err.response?.data?.detail) {
-        setError(err.response.data.detail)
-      } else if (err.message) {
+      // Handle authentication errors
+      if (err.message) {
         setError(err.message)
       } else {
         setError('An error occurred. Please try again.')
@@ -124,6 +115,27 @@ export function LoginPortal() {
             </div>
           </div>
 
+          {/* Password Input */}
+          <div className="space-y-2">
+            <label htmlFor="password" className="text-sm font-medium text-foreground">
+              Password
+            </label>
+            <div className="relative">
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+              <Input
+                id="password"
+                type="password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={loading}
+                required
+                className="pl-10"
+                autoComplete="current-password"
+              />
+            </div>
+          </div>
+
           {/* Error Message */}
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-md bg-destructive/10 text-destructive">
@@ -136,15 +148,15 @@ export function LoginPortal() {
           <Button
             type="submit"
             className="w-full"
-            disabled={loading || !email}
+            disabled={loading || !email || !password}
           >
             {loading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Finding your organization...
+                Signing in...
               </>
             ) : (
-              'Continue'
+              'Sign In'
             )}
           </Button>
         </form>

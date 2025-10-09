@@ -1,34 +1,32 @@
 /**
  * Tenant Selector Component
  *
- * Displays list of tenants for multi-tenant users.
- * User clicks on a tenant to redirect to that tenant's login page.
+ * Displays list of tenants for multi-tenant users (Flow B).
+ * User is already authenticated, just needs to select tenant.
+ * Redirects to dashboard (not login page) with temp token.
  */
 
 import { Building2, ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import type { TenantOption } from '@/api/tenant'
-import { buildTenantLoginUrl, isValidTenantUrl } from '@/api/tenant'
+import { buildDashboardUrl } from '@/api/loginAndDiscover'
 
 interface TenantSelectorProps {
   tenants: TenantOption[]
-  email: string
+  email?: string
 }
 
 export function TenantSelector({ tenants, email }: TenantSelectorProps) {
   const handleTenantSelect = (tenant: TenantOption) => {
-    // Build redirect URL with pre-filled email
-    const redirectUrl = buildTenantLoginUrl(tenant.subdomain, email)
+    // Build dashboard URL (user is already authenticated)
+    const dashboardUrl = buildDashboardUrl(tenant.subdomain)
 
-    // Validate URL before navigation (prevent open redirect)
-    if (!isValidTenantUrl(redirectUrl)) {
-      console.error('Invalid tenant URL:', redirectUrl)
-      return
-    }
+    // TODO: In production, you would exchange temp token for real token here
+    // For now, just redirect to dashboard (temp token is in sessionStorage)
 
-    // Redirect to tenant login page
-    window.location.href = redirectUrl
+    // Redirect to tenant dashboard
+    window.location.href = dashboardUrl
   }
 
   return (
