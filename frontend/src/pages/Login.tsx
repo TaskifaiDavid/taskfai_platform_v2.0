@@ -1,8 +1,11 @@
+import { useSearchParams } from 'react-router-dom'
 import { LoginForm } from '@/components/auth/LoginForm'
 import { TenantBadge } from '@/components/layout/TenantBadge'
 import { Check, Sparkles } from 'lucide-react'
 
 export function Login() {
+  const [searchParams] = useSearchParams()
+  const emailParam = searchParams.get('email')
   return (
     <div className="flex min-h-screen">
       {/* Left Side - Marketing Content */}
@@ -80,7 +83,7 @@ export function Login() {
       {/* Right Side - Login Form */}
       <div className="flex-1 flex items-center justify-center p-8 bg-card">
         <div className="w-full max-w-md">
-          <LoginForm />
+          <LoginForm initialEmail={emailParam || undefined} />
         </div>
       </div>
     </div>

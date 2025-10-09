@@ -7,6 +7,7 @@ import { useAuthStore } from '@/stores/auth'
 
 // Pages
 import { Login } from '@/pages/Login'
+import { LoginPortal } from '@/pages/LoginPortal'
 import { Dashboard } from '@/pages/Dashboard'
 import { Uploads } from '@/pages/Uploads'
 import { Chat } from '@/pages/Chat'
@@ -21,6 +22,10 @@ function AppRoutes() {
   return (
     <Routes>
       {/* Public routes */}
+      <Route
+        path="/portal"
+        element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPortal />}
+      />
       <Route
         path="/login"
         element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />}
