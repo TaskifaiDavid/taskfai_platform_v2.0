@@ -50,6 +50,7 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
         skip_paths = [
             "/health",  # Health check endpoint (App Platform & Docker)
             "/",  # Root endpoint
+            "/api/auth/login",  # Standard login endpoint
             "/api/auth/login-and-discover",
             "/api/auth/discover-tenant"
         ]
@@ -62,9 +63,10 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
 
         print(f"[TenantContextMiddleware] hostname={hostname}, subdomain={subdomain}")
 
-        # For demo/localhost, always use demo context without database lookup
+        # For demo/localhost/app, always use demo context without database lookup
         # This ensures local development works even if tenant registry is not set up
-        if subdomain in ("demo", "localhost", None):
+        # "app" subdomain is the central login portal at app.taskifai.com
+        if subdomain in ("demo", "localhost", "app", None):
             print(f"[TenantContextMiddleware] Using demo context for subdomain: {subdomain}")
             request.state.tenant = TenantContextManager.get_demo_context()
             print(f"[TenantContextMiddleware] Set demo tenant: {request.state.tenant}")
