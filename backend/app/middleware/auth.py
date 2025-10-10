@@ -26,16 +26,25 @@ class AuthMiddleware(BaseHTTPMiddleware):
     """
 
     # Paths that don't require authentication
+    # NOTE: Includes both /api/* and /* variants to handle:
+    # - Local dev: Direct backend access uses /api/* paths
+    # - Production: DigitalOcean App Platform routes may strip /api prefix
     PUBLIC_PATHS = [
         "/",
         "/health",
         "/api/docs",
         "/api/redoc",
         "/openapi.json",
+        # Auth endpoints - with /api prefix (local dev)
         "/api/auth/login",
         "/api/auth/register",
         "/api/auth/login-and-discover",  # Central login (app.taskifai.com)
-        "/api/auth/discover-tenant"  # Tenant discovery
+        "/api/auth/discover-tenant",  # Tenant discovery
+        # Auth endpoints - without /api prefix (production route rewriting)
+        "/auth/login",
+        "/auth/register",
+        "/auth/login-and-discover",
+        "/auth/discover-tenant"
     ]
 
     async def dispatch(self, request: Request, call_next) -> Response:

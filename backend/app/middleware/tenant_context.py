@@ -47,12 +47,20 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
 
         # Skip tenant resolution for central login endpoints (app.taskifai.com)
         # These endpoints don't require tenant context
+        # NOTE: Includes both /api/* and /* variants to handle:
+        # - Local dev: Direct backend access uses /api/* paths
+        # - Production: DigitalOcean App Platform routes may strip /api prefix
         skip_paths = [
             "/health",  # Health check endpoint (App Platform & Docker)
             "/",  # Root endpoint
+            # Auth endpoints - with /api prefix (local dev)
             "/api/auth/login",  # Standard login endpoint
             "/api/auth/login-and-discover",
-            "/api/auth/discover-tenant"
+            "/api/auth/discover-tenant",
+            # Auth endpoints - without /api prefix (production route rewriting)
+            "/auth/login",
+            "/auth/login-and-discover",
+            "/auth/discover-tenant"
         ]
         if request.url.path in skip_paths:
             return await call_next(request)
