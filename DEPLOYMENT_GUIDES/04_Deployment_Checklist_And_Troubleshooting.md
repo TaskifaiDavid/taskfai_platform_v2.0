@@ -1,4 +1,4 @@
-# Deployment Checklist & Troubleshooting Guide
+# App Platform Deployment Checklist & Troubleshooting
 
 ## Table of Contents
 1. [Pre-Deployment Checklist](#pre-deployment-checklist)
@@ -6,118 +6,91 @@
 3. [Tenant Deployment](#tenant-deployment)
 4. [Post-Deployment Verification](#post-deployment-verification)
 5. [Common Issues & Solutions](#common-issues--solutions)
-6. [Monitoring & Alerts](#monitoring--alerts)
+6. [Monitoring & Health](#monitoring--health)
 7. [Emergency Procedures](#emergency-procedures)
 
 ---
 
 ## Pre-Deployment Checklist
 
-### Infrastructure Requirements
+### Accounts & Services
 
-- [ ] **Domain purchased and DNS configured**
-  - [ ] `taskifai.com` registered
-  - [ ] Nameservers pointing to DNS provider
-  - [ ] DNS propagation verified (`dig taskifai.com`)
+- [ ] **DigitalOcean Account**
+  - [ ] Account created and verified
+  - [ ] Payment method configured
+  - [ ] API token generated (read + write permissions)
+  - [ ] Token saved securely
 
-- [ ] **SSL Certificates ready**
-  - [ ] Wildcard cert (`*.taskifai.com`) OR
-  - [ ] Individual certs per subdomain
-  - [ ] Certbot installed on servers
+- [ ] **GitHub Repository**
+  - [ ] Code pushed to repository
+  - [ ] Repository accessible (public or private)
+  - [ ] `.env.example` files documented
+  - [ ] Dockerfile tested locally
 
-- [ ] **Servers provisioned**
-  - [ ] Central login server (1 vCPU, 1GB RAM minimum)
-  - [ ] Tenant server(s) (2 vCPU, 4GB RAM minimum per tenant)
-  - [ ] SSH access configured
-  - [ ] Firewalls configured (ports 22, 80, 443)
-
-- [ ] **Supabase projects created**
+- [ ] **Supabase Projects Created**
   - [ ] Tenant registry project
   - [ ] Demo tenant project
-  - [ ] Future tenant projects (as needed)
+  - [ ] BIBBI tenant project (when needed)
+  - [ ] API keys copied (URL, anon key, service key)
+
+- [ ] **Redis (Upstash)**
+  - [ ] Account created
+  - [ ] Database created (Global region)
+  - [ ] Connection string copied
+
+- [ ] **Domain Name**
+  - [ ] Domain purchased
+  - [ ] Access to DNS management
+  - [ ] DNS provider supports CNAME records
+
+- [ ] **Claude Desktop**
+  - [ ] Downloaded and installed
+  - [ ] MCP configured with DO API token
+  - [ ] MCP connection tested
+
+### Optional Services
+
+- [ ] **OpenAI API**
+  - [ ] Account created
+  - [ ] API key generated
   - [ ] Billing configured
-  - [ ] Backups enabled
 
-- [ ] **Third-party services configured**
-  - [ ] OpenAI API key obtained
-  - [ ] SendGrid account setup
-  - [ ] Redis hosting (Upstash/Redis Cloud) OR local Redis
-
-- [ ] **Repository & CI/CD**
-  - [ ] Code pushed to Git repository
-  - [ ] .env.example files documented
-  - [ ] Deployment scripts tested locally
-  - [ ] CI/CD pipeline configured (optional)
+- [ ] **SendGrid**
+  - [ ] Account created
+  - [ ] API key generated
+  - [ ] Sender email verified
 
 ---
 
 ## Central Login Deployment
 
-### Step 1: Server Setup
+### Step 1: Prepare Environment Variables
 
-```bash
-# ✓ SSH into central login server
-ssh root@app.taskifai.com
+Create file: `env-central-login.txt`
 
-# ✓ Update system
-apt update && apt upgrade -y
-
-# ✓ Install dependencies
-apt install -y nginx certbot python3-certbot-nginx nodejs npm git redis-server
-
-# ✓ Create deployment user
-useradd -m -s /bin/bash deploy
-usermod -aG sudo deploy
+```env
+SECRET_KEY=your-secret-key-min-32-chars
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=1440
+SUPABASE_URL=https://registry-project.supabase.co
+SUPABASE_ANON_KEY=eyJhbGc...
+SUPABASE_SERVICE_KEY=eyJhbGc...
+REDIS_URL=redis://default:xxx@xxx.upstash.io:6379
+ALLOWED_ORIGINS=https://demo.taskifai.com,https://bibbi.taskifai.com
+RATE_LIMIT_ENABLED=true
 ```
 
-### Step 2: Application Deployment
+**Validation:**
+- [ ] SECRET_KEY ≥32 characters
+- [ ] All Supabase keys from registry project
+- [ ] Redis URL from Upstash dashboard
+- [ ] ALLOWED_ORIGINS includes all tenant subdomains
 
-```bash
-# ✓ Clone repository
-su - deploy
-mkdir -p /var/www/taskifai-central
-cd /var/www/taskifai-central
-git clone https://github.com/yourusername/taskifai-platform.git .
+### Step 2: Setup Tenant Registry Database
 
-# ✓ Setup backend
-cd backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+**Execute in Supabase SQL Editor (Registry Project):**
 
-# ✓ Configure environment
-cp .env.example .env
-nano .env  # Edit with actual credentials
-
-# Required variables:
-# - SECRET_KEY (generate with: openssl rand -hex 32)
-# - SUPABASE_URL (tenant registry)
-# - SUPABASE_ANON_KEY (tenant registry)
-# - SUPABASE_SERVICE_KEY (tenant registry)
-# - REDIS_URL
-# - ALLOWED_ORIGINS (add all tenant subdomains)
-```
-
-**Environment Validation:**
-
-```bash
-# ✓ Test environment configuration
-python << EOF
-from app.core.config import settings
-print(f"App Name: {settings.app_name}")
-print(f"Supabase URL: {settings.supabase_url}")
-print(f"Secret Key Length: {len(settings.secret_key)}")
-assert len(settings.secret_key) >= 32, "Secret key too short!"
-print("✓ Environment configuration valid")
-EOF
-```
-
-### Step 3: Database Setup
-
-```bash
-# ✓ Setup tenant registry schema
-# Copy schema SQL
-cat > /tmp/tenant_registry_schema.sql << 'EOF'
+```sql
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 CREATE TABLE IF NOT EXISTS tenants (
@@ -141,156 +114,92 @@ CREATE TABLE IF NOT EXISTS user_tenants (
 
 CREATE INDEX idx_user_tenants_email ON user_tenants(email);
 CREATE INDEX idx_user_tenants_tenant ON user_tenants(tenant_id);
-EOF
-
-# ✓ Execute in Supabase (manual step)
-# Navigate to: Supabase Dashboard → SQL Editor → Paste schema → Run
 ```
 
-### Step 4: Systemd Services
+**Verification:**
+- [ ] Tables created successfully
+- [ ] No errors in SQL Editor
+- [ ] Indexes created
 
-```bash
-# ✓ Create API service
-sudo tee /etc/systemd/system/taskifai-central-api.service << EOF
-[Unit]
-Description=TaskifAI Central Login API
-After=network.target
+### Step 3: Deploy via MCP
 
-[Service]
-Type=simple
-User=deploy
-WorkingDirectory=/var/www/taskifai-central/backend
-Environment="PATH=/var/www/taskifai-central/backend/venv/bin"
-ExecStart=/var/www/taskifai-central/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
-Restart=always
-RestartSec=10
+**Ask Claude:**
 
-[Install]
-WantedBy=multi-user.target
-EOF
+```
+Create a new DigitalOcean app for TaskifAI Central Login:
 
-# ✓ Enable and start service
-sudo systemctl daemon-reload
-sudo systemctl enable taskifai-central-api
-sudo systemctl start taskifai-central-api
+Name: taskifai-central
+Region: nyc
+Repository: https://github.com/[your-username]/taskifai-platform
+Branch: main
 
-# ✓ Check status
-sudo systemctl status taskifai-central-api
+Components:
+1. Static Site (Frontend):
+   - Name: central-frontend
+   - Build command: cd frontend && npm install && npm run build
+   - Output directory: frontend/dist
+   - Environment: VITE_API_URL=https://app.taskifai.com/api
+
+2. Web Service (API, Basic 512MB):
+   - Name: central-api
+   - Dockerfile: backend/Dockerfile
+   - Port: 8000
+   - Health check: /api/health
+   - Environment: [paste env-central-login.txt]
+
+Deploy now and show me the deployment status.
 ```
 
-### Step 5: Frontend Build
+**Wait 5-10 minutes for deployment**
 
-```bash
-# ✓ Build frontend
-cd /var/www/taskifai-central/frontend
-npm install
+- [ ] Build completed successfully
+- [ ] Frontend deployed
+- [ ] API service running
+- [ ] Health check passing
 
-# ✓ Configure environment
-cp .env.example .env
-nano .env  # Set VITE_API_URL=https://app.taskifai.com/api
+### Step 4: Configure DNS
 
-# ✓ Build for production
-npm run build
-
-# Verify dist/ directory created
-ls -lh dist/
+**Get App URL from MCP:**
+```
+"What is the default URL for taskifai-central app?"
 ```
 
-### Step 6: Nginx Configuration
+**Add DNS Records:**
 
-```bash
-# ✓ Create Nginx config
-sudo tee /etc/nginx/sites-available/app.taskifai.com << 'EOF'
-server {
-    listen 80;
-    server_name app.taskifai.com;
-    return 301 https://$server_name$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name app.taskifai.com;
-
-    # SSL (will be configured by Certbot)
-    ssl_certificate /etc/letsencrypt/live/app.taskifai.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/app.taskifai.com/privkey.pem;
-
-    # Security headers
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-    add_header X-Frame-Options "DENY" always;
-    add_header X-Content-Type-Options "nosniff" always;
-
-    # Frontend (React SPA)
-    location / {
-        root /var/www/taskifai-central/frontend/dist;
-        try_files $uri $uri/ /index.html;
-
-        # Cache static assets
-        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
-            expires 1y;
-            add_header Cache-Control "public, immutable";
-        }
-    }
-
-    # Backend API
-    location /api {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        # Timeouts
-        proxy_connect_timeout 60s;
-        proxy_send_timeout 60s;
-        proxy_read_timeout 60s;
-    }
-}
-EOF
-
-# ✓ Enable site
-sudo ln -s /etc/nginx/sites-available/app.taskifai.com /etc/nginx/sites-enabled/
-
-# ✓ Test Nginx config
-sudo nginx -t
-
-# ✓ Reload Nginx
-sudo systemctl reload nginx
+```dns
+Type: CNAME
+Name: app
+Value: [app-url-from-mcp].ondigitalocean.app
+TTL: 300
 ```
 
-### Step 7: SSL Setup
+**Verification:**
+- [ ] DNS record added
+- [ ] Wait 5-30 minutes for propagation
+- [ ] Test: `dig app.taskifai.com` shows CNAME
+
+### Step 5: Verify Deployment
 
 ```bash
-# ✓ Get SSL certificate
-sudo certbot --nginx -d app.taskifai.com --non-interactive --agree-tos -m admin@taskifai.com
-
-# ✓ Test auto-renewal
-sudo certbot renew --dry-run
-
-# ✓ Verify HTTPS
-curl -I https://app.taskifai.com
-```
-
-### Step 8: Verification
-
-```bash
-# ✓ Test health endpoint
+# Test health endpoint
 curl https://app.taskifai.com/api/health
-# Expected: {"status": "healthy"}
 
-# ✓ Test tenant discovery
+# Expected response:
+{"status":"healthy"}
+
+# Test tenant discovery (should fail - no tenants yet)
 curl -X POST https://app.taskifai.com/api/auth/discover-tenant \
   -H "Content-Type: application/json" \
-  -d '{"email": "nonexistent@example.com"}'
-# Expected: 404 (no tenants registered yet)
+  -d '{"email":"test@example.com"}'
 
-# ✓ Check logs
-sudo journalctl -u taskifai-central-api -n 50
-
-# ✓ Check Nginx logs
-sudo tail -f /var/log/nginx/access.log
-sudo tail -f /var/log/nginx/error.log
+# Expected: 404 (tenant not found)
 ```
+
+**Checklist:**
+- [ ] Health endpoint returns 200
+- [ ] HTTPS working (not HTTP)
+- [ ] Discovery endpoint returns 404 (expected)
+- [ ] No errors in App Platform logs
 
 ---
 
@@ -298,220 +207,165 @@ sudo tail -f /var/log/nginx/error.log
 
 ### Demo Tenant Example
 
-Follow these steps for each tenant (demo, bibbi, customer3, etc.):
+Follow for each tenant: demo, bibbi, customer3, etc.
 
 ### Step 1: Create Supabase Project
 
-- [ ] **Login to Supabase Dashboard**
-- [ ] **Create new project**
-  - [ ] Name: "TaskifAI Demo Tenant"
-  - [ ] Region: Choose closest to users
-  - [ ] Generate strong database password
-  - [ ] Wait for project provisioning (~2 minutes)
+**In Supabase Dashboard:**
+- [ ] Create new project: "TaskifAI-Demo"
+- [ ] Choose region (closest to users)
+- [ ] Generate strong database password
+- [ ] Wait for provisioning (~2 minutes)
 
-- [ ] **Copy credentials**
-  ```
-  Project URL: https://xxxxx.supabase.co
-  Anon Key: eyJhbGc...
-  Service Role Key: eyJhbGc...
-  ```
+**Copy Credentials:**
+```
+Project URL: https://xxxxx.supabase.co
+Anon Key: eyJhbGc...
+Service Role Key: eyJhbGc...
+```
 
-- [ ] **Execute schema**
-  - [ ] Navigate to SQL Editor
-  - [ ] Paste content from `backend/db/schema.sql`
-  - [ ] Run
-  - [ ] Paste content from `backend/db/seed_vendor_configs.sql`
-  - [ ] Run
+### Step 2: Setup Database Schema
 
-- [ ] **Verify tables created**
-  ```sql
-  SELECT table_name FROM information_schema.tables
-  WHERE table_schema = 'public'
-  ORDER BY table_name;
-  ```
+**Execute in SQL Editor (Demo Project):**
 
-### Step 2: Register Tenant in Registry
+- [ ] Copy content from `backend/db/schema.sql`
+- [ ] Paste into SQL Editor
+- [ ] Run
+- [ ] Copy content from `backend/db/seed_vendor_configs.sql`
+- [ ] Paste into SQL Editor
+- [ ] Run
+
+**Verify Tables:**
+```sql
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'public'
+ORDER BY table_name;
+```
+
+Expected tables:
+- [ ] ecommerce_orders
+- [ ] sellout_entries2
+- [ ] products
+- [ ] users
+- [ ] upload_batches
+- [ ] conversation_history
+- [ ] vendor_configs
+
+### Step 3: Register Tenant in Registry
+
+**Execute in Registry Supabase Project:**
 
 ```sql
--- Execute in Tenant Registry Supabase project
-INSERT INTO tenants (subdomain, display_name, database_url, database_anon_key)
+INSERT INTO tenants (subdomain, display_name, database_url, database_anon_key, is_active)
 VALUES (
     'demo',
     'Demo Account',
     'https://xxxxx.supabase.co',
-    'eyJhbGc...anon-key...'
+    'eyJhbGc...anon-key...',
+    true
 );
 
--- Verify insertion
+-- Verify
 SELECT tenant_id, subdomain, display_name, is_active
 FROM tenants
 WHERE subdomain = 'demo';
 ```
 
-### Step 3: Server Setup
+- [ ] Tenant registered successfully
+- [ ] tenant_id returned
+- [ ] is_active = true
 
-```bash
-# ✓ SSH into tenant server
-ssh root@demo.taskifai.com
+### Step 4: Prepare Environment
 
-# ✓ Update system
-apt update && apt upgrade -y
+Create file: `env-demo-tenant.txt`
 
-# ✓ Install dependencies
-apt install -y nginx certbot python3-certbot-nginx nodejs npm git redis-server
-
-# ✓ Create application directory
-mkdir -p /var/www/taskifai-demo
-cd /var/www/taskifai-demo
-
-# ✓ Clone repository
-git clone https://github.com/yourusername/taskifai-platform.git .
-```
-
-### Step 4: Backend Configuration
-
-```bash
-# ✓ Setup Python environment
-cd backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# ✓ Configure environment
-cat > .env << EOF
-APP_NAME="TaskifAI Analytics Platform - Demo"
+```env
+APP_NAME=TaskifAI Analytics Platform - Demo
 DEBUG=false
-
-# Security
-SECRET_KEY=$(openssl rand -hex 32)
+SECRET_KEY=demo-specific-secret-key-32-chars
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=1440
-
-# Supabase (Demo tenant database)
-SUPABASE_URL=https://xxxxx.supabase.co
-SUPABASE_ANON_KEY=eyJhbGc...demo-anon-key...
-SUPABASE_SERVICE_KEY=eyJhbGc...demo-service-key...
-
-# Redis
-REDIS_URL=redis://localhost:6379/0
-
-# OpenAI
-OPENAI_API_KEY=sk-your-openai-api-key
+SUPABASE_URL=https://demo-xxxxx.supabase.co
+SUPABASE_ANON_KEY=demo-anon-key
+SUPABASE_SERVICE_KEY=demo-service-key
+REDIS_URL=redis://default:xxx@xxx.upstash.io:6379
+OPENAI_API_KEY=sk-your-key
 OPENAI_MODEL=gpt-4o-mini
-
-# SendGrid
-SENDGRID_API_KEY=SG.your-sendgrid-api-key
+SENDGRID_API_KEY=SG.your-key
 SENDGRID_FROM_EMAIL=noreply@taskifai.com
 SENDGRID_FROM_NAME=TaskifAI Demo
-
-# File Upload
 MAX_UPLOAD_SIZE=104857600
-UPLOAD_DIR=/var/www/taskifai-demo/uploads
-
-# CORS
+UPLOAD_DIR=/tmp/uploads
 ALLOWED_ORIGINS=https://demo.taskifai.com
-EOF
-
-# ✓ Create uploads directory
-mkdir -p /var/www/taskifai-demo/uploads
-sudo chown www-data:www-data /var/www/taskifai-demo/uploads
 ```
 
-### Step 5: Systemd Services
+**Validation:**
+- [ ] Different SECRET_KEY from central login
+- [ ] Supabase credentials from demo project
+- [ ] All API keys valid
 
-```bash
-# ✓ Backend API service
-sudo tee /etc/systemd/system/taskifai-demo-api.service << EOF
-[Unit]
-Description=TaskifAI Demo API
-After=network.target redis.service
+### Step 5: Deploy via MCP
 
-[Service]
-Type=simple
-User=deploy
-WorkingDirectory=/var/www/taskifai-demo/backend
-Environment="PATH=/var/www/taskifai-demo/backend/venv/bin"
-ExecStart=/var/www/taskifai-demo/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
-Restart=always
-RestartSec=10
+**Ask Claude:**
 
-[Install]
-WantedBy=multi-user.target
-EOF
+```
+Create DigitalOcean app for TaskifAI Demo Tenant:
 
-# ✓ Celery worker service
-sudo tee /etc/systemd/system/taskifai-demo-worker.service << EOF
-[Unit]
-Description=TaskifAI Demo Celery Worker
-After=network.target redis.service
+Name: taskifai-demo
+Region: nyc
+Repository: https://github.com/[your-username]/taskifai-platform
+Branch: main
 
-[Service]
-Type=simple
-User=deploy
-WorkingDirectory=/var/www/taskifai-demo/backend
-Environment="PATH=/var/www/taskifai-demo/backend/venv/bin"
-ExecStart=/var/www/taskifai-demo/backend/venv/bin/celery -A app.workers.celery_app worker --loglevel=info --concurrency=4
-Restart=always
-RestartSec=10
+Components:
+1. Static Site (Frontend):
+   - Name: demo-frontend
+   - Build command: cd frontend && npm install && npm run build
+   - Output directory: frontend/dist
+   - Environment: VITE_API_URL=https://demo.taskifai.com/api
 
-[Install]
-WantedBy=multi-user.target
-EOF
+2. Web Service (API, Professional 1GB):
+   - Name: demo-api
+   - Dockerfile: backend/Dockerfile
+   - Port: 8000
+   - Health check: /api/health
+   - Instance size: professional-xs
+   - Environment: [paste env-demo-tenant.txt]
 
-# ✓ Enable and start services
-sudo systemctl daemon-reload
-sudo systemctl enable taskifai-demo-api taskifai-demo-worker
-sudo systemctl start taskifai-demo-api taskifai-demo-worker
+3. Worker Service (Basic 512MB):
+   - Name: demo-worker
+   - Dockerfile: backend/Dockerfile
+   - Instance size: basic-xxs
+   - Run command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4
+   - Environment: [same as demo-api]
 
-# ✓ Check status
-sudo systemctl status taskifai-demo-api
-sudo systemctl status taskifai-demo-worker
+Deploy now.
 ```
 
-### Step 6: Frontend Build
+**Wait 10-15 minutes for deployment**
 
-```bash
-# ✓ Build frontend
-cd /var/www/taskifai-demo/frontend
-npm install
+- [ ] Frontend build completed
+- [ ] API service running
+- [ ] Worker service running
+- [ ] All health checks passing
 
-# ✓ Configure environment
-cat > .env << EOF
-VITE_API_URL=https://demo.taskifai.com/api
-VITE_ENVIRONMENT=production
-EOF
+### Step 6: Configure DNS
 
-# ✓ Build
-npm run build
-
-# ✓ Verify dist/ created
-ls -lh dist/
+```dns
+Type: CNAME
+Name: demo
+Value: [app-url-from-mcp].ondigitalocean.app
+TTL: 300
 ```
 
-### Step 7: Nginx & SSL
+- [ ] DNS record added
+- [ ] Propagation wait (5-30 min)
+- [ ] Test: `dig demo.taskifai.com`
 
+### Step 7: Create Admin User
+
+**Via API:**
 ```bash
-# ✓ Create Nginx config (same as central login, but with demo subdomain)
-sudo tee /etc/nginx/sites-available/demo.taskifai.com << 'EOF'
-# [Similar to central login config, replace app.taskifai.com with demo.taskifai.com]
-# [Add client_max_body_size 100M; for file uploads]
-EOF
-
-# ✓ Enable site
-sudo ln -s /etc/nginx/sites-available/demo.taskifai.com /etc/nginx/sites-enabled/
-
-# ✓ Test and reload
-sudo nginx -t
-sudo systemctl reload nginx
-
-# ✓ Get SSL certificate
-sudo certbot --nginx -d demo.taskifai.com --non-interactive --agree-tos -m admin@taskifai.com
-```
-
-### Step 8: Create Admin User
-
-```bash
-# ✓ Create first admin user via API
 curl -X POST https://demo.taskifai.com/api/auth/register \
   -H "Content-Type: application/json" \
   -d '{
@@ -520,529 +374,443 @@ curl -X POST https://demo.taskifai.com/api/auth/register \
     "full_name": "Demo Admin",
     "role": "admin"
   }'
-
-# Save the returned token and user_id
 ```
 
-### Step 9: Register User in Tenant Registry
+- [ ] Registration successful
+- [ ] Token received
+- [ ] user_id saved
+
+### Step 8: Register User in Tenant Registry
+
+**Execute in Registry Supabase:**
 
 ```sql
--- Execute in Tenant Registry Supabase
--- Get tenant_id first
+-- Get tenant_id
 SELECT tenant_id FROM tenants WHERE subdomain = 'demo';
 
--- Register admin user
+-- Register user
 INSERT INTO user_tenants (tenant_id, email)
-VALUES ('tenant-id-from-above', 'admin@demo.com');
+VALUES ('[tenant-id-from-above]', 'admin@demo.com');
 ```
 
-### Step 10: Verification
+- [ ] User registered in registry
+- [ ] No errors
 
+### Step 9: Verify Complete Flow
+
+**1. Tenant Discovery:**
 ```bash
-# ✓ Test full user flow
-# 1. Discover tenant
 curl -X POST https://app.taskifai.com/api/auth/discover-tenant \
   -H "Content-Type: application/json" \
-  -d '{"email": "admin@demo.com"}'
-# Expected: {"tenant": "demo", "redirect_url": "https://demo.taskifai.com/login"}
+  -d '{"email":"admin@demo.com"}'
+```
 
-# 2. Login
+Expected:
+```json
+{
+  "tenant": "demo",
+  "redirect_url": "https://demo.taskifai.com/login"
+}
+```
+
+**2. Login:**
+```bash
 curl -X POST https://demo.taskifai.com/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email": "admin@demo.com", "password": "SecurePassword123!"}'
-# Expected: {"access_token": "...", "user": {...}}
-
-# 3. Test authenticated endpoint
-curl -H "Authorization: Bearer $TOKEN" \
-  https://demo.taskifai.com/api/uploads
-
-# 4. Test file upload (use demo file)
-curl -X POST https://demo.taskifai.com/api/uploads \
-  -H "Authorization: Bearer $TOKEN" \
-  -F "file=@/path/to/demo_file.xlsx" \
-  -F "upload_mode=append"
-
-# 5. Check Celery processing
-sudo journalctl -u taskifai-demo-worker -n 50
-
-# 6. Verify data in Supabase
-# Query ecommerce_orders or sellout_entries2 tables
+  -d '{"email":"admin@demo.com","password":"SecurePassword123!"}'
 ```
+
+Expected: Access token + user data
+
+**3. Test Upload:**
+```bash
+curl -X POST https://demo.taskifai.com/api/uploads \
+  -H "Authorization: Bearer [token]" \
+  -F "file=@/path/to/test-file.xlsx" \
+  -F "upload_mode=append"
+```
+
+Expected: Upload ID + processing status
+
+**4. Check Worker Processing:**
+
+Ask Claude:
+```
+"Show logs for taskifai-demo demo-worker component"
+```
+
+- [ ] Worker processing file
+- [ ] No errors in logs
+- [ ] Task completing
+
+**5. Verify Data in Supabase:**
+
+```sql
+-- Check ecommerce_orders
+SELECT COUNT(*) FROM ecommerce_orders;
+
+-- Check upload status
+SELECT processing_status, rows_processed
+FROM upload_batches
+ORDER BY upload_timestamp DESC
+LIMIT 1;
+```
+
+- [ ] Data inserted
+- [ ] Upload marked as completed
+- [ ] Row count matches file
 
 ---
 
 ## Post-Deployment Verification
 
-### System Health Checklist
+### System Health
 
-```bash
-# ✓ All services running
-sudo systemctl status taskifai-central-api
-sudo systemctl status taskifai-demo-api
-sudo systemctl status taskifai-demo-worker
-sudo systemctl status redis-server
-sudo systemctl status nginx
+**App Platform Dashboard:**
 
-# ✓ Ports listening
-sudo netstat -tlnp | grep -E ':(80|443|6379|8000)'
-
-# ✓ Disk space
-df -h
-
-# ✓ Memory usage
-free -h
-
-# ✓ CPU load
-uptime
+Ask Claude:
 ```
+"Show status for all TaskifAI apps"
+```
+
+- [ ] taskifai-central: Running
+- [ ] taskifai-demo: Running
+- [ ] All components healthy
+- [ ] No failed deployments
 
 ### Application Health
 
+**Central Login:**
 ```bash
-# ✓ Central login portal
 curl -I https://app.taskifai.com
+# Expected: HTTP/2 200
+
 curl https://app.taskifai.com/api/health
+# Expected: {"status":"healthy"}
+```
 
-# ✓ Demo tenant
+**Demo Tenant:**
+```bash
 curl -I https://demo.taskifai.com
+# Expected: HTTP/2 200
+
 curl https://demo.taskifai.com/api/health
-
-# ✓ Redis
-redis-cli ping
-
-# ✓ Celery worker
-curl -H "Authorization: Bearer $ADMIN_TOKEN" \
-  https://demo.taskifai.com/api/admin/worker-status
+# Expected: {"status":"healthy"}
 ```
 
 ### Security Verification
 
+**SSL/TLS:**
 ```bash
-# ✓ SSL/TLS grade
+# Check HTTPS redirect
+curl -I http://demo.taskifai.com
+# Expected: 301 → https://demo.taskifai.com
+
+# Check SSL grade (manual)
 # Visit: https://www.ssllabs.com/ssltest/
-# Enter: app.taskifai.com and demo.taskifai.com
+# Enter: demo.taskifai.com
 # Expected: A or A+ grade
+```
 
-# ✓ HTTPS enforcement
-curl -I http://app.taskifai.com
-# Expected: 301 redirect to HTTPS
-
-# ✓ Security headers
-curl -I https://demo.taskifai.com | grep -E '(Strict-Transport|X-Frame|X-Content)'
-
-# ✓ Rate limiting
+**Rate Limiting:**
+```bash
+# Send 15 requests quickly
 for i in {1..15}; do
   curl -X POST https://app.taskifai.com/api/auth/discover-tenant \
     -H "Content-Type: application/json" \
-    -d '{"email": "test@example.com"}'
+    -d '{"email":"test@example.com"}'
 done
-# Expected: 429 Too Many Requests after 10 requests
 ```
+
+- [ ] First 10 requests: 404 (tenant not found)
+- [ ] Next 5 requests: 429 (rate limited)
 
 ---
 
 ## Common Issues & Solutions
 
-### Issue 1: Service Won't Start
+### Issue 1: Deployment Failed
 
 **Symptoms:**
-```bash
-sudo systemctl status taskifai-demo-api
-● taskifai-demo-api.service - TaskifAI Demo API
-   Loaded: loaded
-   Active: failed
+- Build fails
+- App won't start
+- Health checks failing
+
+**Diagnosis via MCP:**
+```
+"Show deployment logs for taskifai-demo"
+"Show build logs for latest deployment"
 ```
 
-**Diagnosis:**
-```bash
-# Check detailed logs
-sudo journalctl -u taskifai-demo-api -n 100 --no-pager
+**Common Causes:**
 
-# Common errors:
-# - Port already in use
-# - Missing environment variables
-# - Import errors
-# - Permission errors
+**A. Missing Environment Variables**
+
+Solution:
+```
+"Show environment variables for taskifai-demo demo-api"
+"Update taskifai-demo demo-api environment variable SECRET_KEY to [new-value]"
 ```
 
-**Solutions:**
+**B. Dockerfile Error**
 
-**A. Port already in use**
+Check backend/Dockerfile locally:
 ```bash
-# Find process using port 8000
-sudo lsof -i :8000
-# Kill process
-sudo kill -9 <PID>
-# Restart service
-sudo systemctl restart taskifai-demo-api
+cd backend
+docker build -t test-build .
+docker run -p 8000:8000 test-build
 ```
 
-**B. Missing environment variables**
-```bash
-# Verify .env file exists and has correct values
-cat /var/www/taskifai-demo/backend/.env | grep -E '(SUPABASE_URL|SECRET_KEY)'
+**C. Port Mismatch**
 
-# Test environment loading
-cd /var/www/taskifai-demo/backend
-source venv/bin/activate
-python << EOF
-from app.core.config import settings
-print(settings.supabase_url)
-EOF
+Ensure Dockerfile exposes port 8000:
+```dockerfile
+EXPOSE 8000
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
-**C. Import errors**
-```bash
-# Reinstall dependencies
-cd /var/www/taskifai-demo/backend
-source venv/bin/activate
-pip install --upgrade -r requirements.txt
+**D. Out of Memory**
 
-# Check for missing packages
-python -c "import fastapi; import supabase; import celery"
+Solution via MCP:
 ```
-
-**D. Permission errors**
-```bash
-# Fix ownership
-sudo chown -R deploy:deploy /var/www/taskifai-demo
-
-# Fix uploads directory
-sudo chown www-data:www-data /var/www/taskifai-demo/uploads
-sudo chmod 755 /var/www/taskifai-demo/uploads
+"Update taskifai-demo demo-api to professional-xs instance (1GB)"
 ```
 
 ---
 
-### Issue 2: File Upload Fails
+### Issue 2: App Not Accessible
+
+**Symptoms:**
+- Domain doesn't load
+- SSL errors
+- 404 errors
+
+**Diagnosis:**
+
+**Check DNS:**
+```bash
+dig demo.taskifai.com
+
+# Expected:
+# demo.taskifai.com. 300 IN CNAME app-xxxxx.ondigitalocean.app.
+```
+
+**Check App URL:**
+
+Ask Claude:
+```
+"What is the default URL for taskifai-demo?"
+```
+
+**Solutions:**
+
+**A. DNS Not Propagated**
+- Wait 5-30 more minutes
+- Check propagation: https://dnschecker.org
+
+**B. Wrong CNAME Target**
+- Update DNS record with correct App Platform URL
+- Wait for propagation
+
+**C. SSL Pending**
+- App Platform provisioning SSL (takes 2-5 min)
+- Check in DO dashboard: Apps → taskifai-demo → Settings → Domains
+
+---
+
+### Issue 3: Worker Not Processing Files
 
 **Symptoms:**
 - Upload stuck at "processing"
-- Status shows "failed" immediately
 - No data in database
+- Worker logs show errors
 
-**Diagnosis:**
-```bash
-# Check Celery worker logs
-sudo journalctl -u taskifai-demo-worker -n 100 --no-pager
-
-# Check Redis connection
-redis-cli ping
-
-# Check upload directory permissions
-ls -la /var/www/taskifai-demo/uploads
-
-# Check Celery active tasks
-cd /var/www/taskifai-demo/backend
-source venv/bin/activate
-celery -A app.workers.celery_app inspect active
+**Diagnosis via MCP:**
+```
+"Show logs for taskifai-demo demo-worker"
 ```
 
-**Solutions:**
+**Common Causes:**
 
-**A. Celery worker not running**
-```bash
-sudo systemctl restart taskifai-demo-worker
-sudo systemctl status taskifai-demo-worker
+**A. Redis Connection Failed**
+
+Check REDIS_URL in environment:
+```
+"Show environment variables for taskifai-demo demo-worker"
 ```
 
-**B. Redis connection failed**
+Test Redis:
 ```bash
-# Check Redis status
-sudo systemctl status redis-server
-
-# Test connection
-redis-cli ping
-
-# Check Redis URL in .env
-grep REDIS_URL /var/www/taskifai-demo/backend/.env
+# Using redis-cli (if you have it)
+redis-cli -u redis://default:xxx@xxx.upstash.io:6379 ping
 ```
 
-**C. Vendor detection failed**
-```bash
-# Test vendor detection manually
-cd /var/www/taskifai-demo/backend
-source venv/bin/activate
-python << EOF
-from app.services.vendors.detector import vendor_detector
-vendor, confidence = vendor_detector.detect_vendor(
-    "/path/to/upload.xlsx",
-    "filename.xlsx"
-)
-print(f"Detected: {vendor} (confidence: {confidence})")
-EOF
+**B. Worker Not Running**
+
+Check status via MCP:
+```
+"Show status for taskifai-demo demo-worker component"
+"Restart taskifai-demo demo-worker"
 ```
 
-**D. Processor error**
-```bash
-# Test processor directly
-cd /var/www/taskifai-demo/backend
-source venv/bin/activate
-python scripts/test_processor_integration.py /path/to/upload.xlsx
+**C. Out of Memory**
+
+Upgrade worker instance:
+```
+"Update taskifai-demo demo-worker to basic-xs instance (1GB)"
+```
+
+**D. Vendor Detection Failed**
+
+Check logs for vendor detection errors:
+```
+"Show logs for taskifai-demo demo-worker" (look for "vendor_detector" errors)
 ```
 
 ---
 
-### Issue 3: Tenant Discovery Fails
+### Issue 4: Tenant Discovery Fails
 
 **Symptoms:**
 - User can't login from central portal
 - Discovery returns 404 for existing user
 
 **Diagnosis:**
-```bash
-# Check tenant registry data
-# Query in Supabase SQL Editor:
+
+**Check Registry Data:**
+
+Execute in Registry Supabase:
+```sql
 SELECT t.subdomain, ut.email
 FROM tenants t
 JOIN user_tenants ut ON t.tenant_id = ut.tenant_id
-WHERE ut.email = 'user@example.com';
-
-# Test discovery endpoint
-curl -X POST https://app.taskifai.com/api/auth/discover-tenant \
-  -H "Content-Type: application/json" \
-  -d '{"email": "admin@demo.com"}' -v
+WHERE ut.email = 'admin@demo.com';
 ```
 
 **Solutions:**
 
-**A. User not registered in tenant registry**
+**A. User Not Registered**
+
+Register in registry:
 ```sql
--- Register user in tenant registry
 -- Get tenant_id
 SELECT tenant_id FROM tenants WHERE subdomain = 'demo';
 
--- Insert user
+-- Register user
 INSERT INTO user_tenants (tenant_id, email)
-VALUES ('tenant-id-here', 'admin@demo.com')
+VALUES ('[tenant-id]', 'admin@demo.com')
 ON CONFLICT (tenant_id, email) DO NOTHING;
 ```
 
-**B. Tenant not active**
-```sql
--- Check tenant status
-SELECT subdomain, is_active FROM tenants WHERE subdomain = 'demo';
+**B. Tenant Not Active**
 
--- Activate tenant
+Activate tenant:
+```sql
 UPDATE tenants SET is_active = true WHERE subdomain = 'demo';
 ```
 
-**C. Central login API can't reach registry**
-```bash
-# Check registry credentials in central login .env
-cat /var/www/taskifai-central/backend/.env | grep SUPABASE
+**C. Central API Can't Reach Registry**
 
-# Test connection
-cd /var/www/taskifai-central/backend
-source venv/bin/activate
-python << EOF
-from app.core.config import settings
-from supabase import create_client
-
-client = create_client(settings.supabase_url, settings.supabase_anon_key)
-result = client.table("tenants").select("*").execute()
-print(f"Found {len(result.data)} tenants")
-EOF
+Check central login environment:
 ```
+"Show environment variables for taskifai-central central-api"
+```
+
+Verify SUPABASE_URL points to registry project.
 
 ---
 
-### Issue 4: AI Chat Not Working
+### Issue 5: High Costs
 
 **Symptoms:**
-- Chat returns errors
-- No SQL generated
-- Timeout errors
+- Monthly bill higher than expected
+- Bandwidth overages
+- Unexpected resource usage
 
-**Diagnosis:**
-```bash
-# Check OpenAI API key
-grep OPENAI_API_KEY /var/www/taskifai-demo/backend/.env
-
-# Test OpenAI connection
-cd /var/www/taskifai-demo/backend
-source venv/bin/activate
-python << EOF
-from openai import OpenAI
-from app.core.config import settings
-
-client = OpenAI(api_key=settings.openai_api_key)
-response = client.chat.completions.create(
-    model="gpt-4o-mini",
-    messages=[{"role": "user", "content": "Say hello"}]
-)
-print(response.choices[0].message.content)
-EOF
+**Diagnosis via MCP:**
+```
+"Show bandwidth usage for all apps this month"
+"Show resource usage for taskifai-demo"
 ```
 
 **Solutions:**
 
-**A. Invalid OpenAI API key**
-```bash
-# Get new API key from https://platform.openai.com/api-keys
-# Update .env
-nano /var/www/taskifai-demo/backend/.env
-# Update OPENAI_API_KEY=sk-...
+**A. Over-Sized Instances**
 
-# Restart API
-sudo systemctl restart taskifai-demo-api
+Check if resources underutilized:
+```
+"Show CPU and memory usage for taskifai-demo demo-api"
 ```
 
-**B. Insufficient OpenAI credits**
-- Check billing at: https://platform.openai.com/account/billing
-- Add credits if balance is low
-
-**C. Timeout errors**
-```python
-# Increase timeout in app/services/ai_chat/agent.py
-# (if you've customized the agent)
+If CPU <30% and Memory <50%:
 ```
+"Update taskifai-demo demo-api to basic-xs instance"
+```
+
+**Savings: $12/mo → $5/mo**
+
+**B. Too Many Instances**
+
+If traffic is low:
+```
+"Scale taskifai-demo demo-api to 1 instance"
+```
+
+**C. Bandwidth Overages**
+
+Optimize:
+- Compress images/files
+- Use CDN for static assets
+- Enable gzip compression
 
 ---
 
-### Issue 5: Data Not Appearing in Dashboard
+## Monitoring & Health
 
-**Symptoms:**
-- Upload succeeds
-- No data in analytics
-- Empty charts
+### Daily Health Checks
 
-**Diagnosis:**
-```bash
-# Check if data was inserted
-# Query in tenant's Supabase SQL Editor:
-SELECT COUNT(*) FROM ecommerce_orders;
-SELECT COUNT(*) FROM sellout_entries2;
+**Automated via MCP:**
 
-# Check specific user's data
-SELECT COUNT(*) FROM ecommerce_orders WHERE user_id = 'user-id-here';
-
-# Check upload batch status
-SELECT processing_status, rows_processed, error_summary
-FROM upload_batches
-WHERE uploader_user_id = 'user-id-here'
-ORDER BY upload_timestamp DESC
-LIMIT 5;
+Ask Claude daily:
+```
+"Show status for all TaskifAI apps"
+"Show any failed deployments in last 24 hours"
+"Show error rate for taskifai-demo"
 ```
 
-**Solutions:**
+### Weekly Reviews
 
-**A. Data in wrong table**
-```sql
--- Check both tables
-SELECT 'ecommerce_orders' as table_name, COUNT(*) as row_count
-FROM ecommerce_orders WHERE user_id = 'user-id'
-UNION ALL
-SELECT 'sellout_entries2', COUNT(*)
-FROM sellout_entries2 WHERE user_id = 'user-id';
+**Performance:**
+```
+"Show CPU and memory usage for all apps this week"
+"Show response times for taskifai-demo"
+"Show bandwidth usage this week"
 ```
 
-**B. RLS blocking access**
-```sql
--- Verify user_id matches
-SELECT user_id FROM users WHERE email = 'admin@demo.com';
-
--- Check if data exists with that user_id
-SELECT COUNT(*) FROM ecommerce_orders WHERE user_id = 'correct-user-id';
+**Costs:**
+```
+"Show current month costs for all apps"
+"Compare to last month"
 ```
 
-**C. Frontend filtering issue**
-```bash
-# Check browser console for API errors
-# Test API directly
-curl -H "Authorization: Bearer $TOKEN" \
-  "https://demo.taskifai.com/api/analytics/summary"
-```
+### Monthly Audits
 
----
+- [ ] Review and rotate API keys
+- [ ] Check Supabase database sizes
+- [ ] Review Redis usage
+- [ ] Audit user access logs
+- [ ] Check backup status
+- [ ] Review error logs
 
-## Monitoring & Alerts
+### External Monitoring (Recommended)
 
-### Setup Uptime Monitoring
+**Setup Uptime Robot:**
 
-**Using Uptime Robot (Free):**
-
-1. Sign up at https://uptimerobot.com
+1. Sign up: https://uptimerobot.com
 2. Add monitors:
-   - `https://app.taskifai.com` (HTTP, 5 min interval)
-   - `https://demo.taskifai.com` (HTTP, 5 min interval)
-   - `https://app.taskifai.com/api/health` (Keyword: "healthy")
-3. Configure alerts (email/SMS)
-
-**Using cURL + Cron (Self-hosted):**
-
-```bash
-# Create monitoring script
-sudo tee /usr/local/bin/monitor-taskifai.sh << 'EOF'
-#!/bin/bash
-
-# Check central login
-if ! curl -sf https://app.taskifai.com/api/health > /dev/null; then
-    echo "ALERT: Central login down!" | mail -s "TaskifAI Alert" admin@taskifai.com
-fi
-
-# Check demo tenant
-if ! curl -sf https://demo.taskifai.com/api/health > /dev/null; then
-    echo "ALERT: Demo tenant down!" | mail -s "TaskifAI Alert" admin@taskifai.com
-fi
-EOF
-
-sudo chmod +x /usr/local/bin/monitor-taskifai.sh
-
-# Add to crontab (run every 5 minutes)
-(crontab -l 2>/dev/null; echo "*/5 * * * * /usr/local/bin/monitor-taskifai.sh") | crontab -
-```
-
-### Setup Log Monitoring
-
-```bash
-# Create log rotation
-sudo tee /etc/logrotate.d/taskifai << EOF
-/var/www/taskifai-*/logs/*.log {
-    daily
-    missingok
-    rotate 14
-    compress
-    delaycompress
-    notifempty
-    create 0640 deploy deploy
-}
-EOF
-
-# Test log rotation
-sudo logrotate -f /etc/logrotate.d/taskifai
-```
-
-### Performance Metrics
-
-**Track these metrics:**
-
-1. **API Response Time**
-   ```bash
-   curl -w "@-" -o /dev/null -s https://demo.taskifai.com/api/health << 'EOF'
-   time_total: %{time_total}s
-   EOF
-   ```
-
-2. **Upload Success Rate**
-   ```sql
-   SELECT
-       DATE(upload_timestamp) as date,
-       COUNT(*) as total_uploads,
-       SUM(CASE WHEN processing_status = 'completed' THEN 1 ELSE 0 END) as successful,
-       ROUND(100.0 * SUM(CASE WHEN processing_status = 'completed' THEN 1 ELSE 0 END) / COUNT(*), 2) as success_rate
-   FROM upload_batches
-   WHERE upload_timestamp >= NOW() - INTERVAL '7 days'
-   GROUP BY DATE(upload_timestamp)
-   ORDER BY date DESC;
-   ```
-
-3. **Active Users**
-   ```sql
-   SELECT COUNT(DISTINCT user_id) as active_users_last_24h
-   FROM conversation_history
-   WHERE timestamp >= NOW() - INTERVAL '24 hours';
-   ```
+   - https://app.taskifai.com/api/health (5 min interval)
+   - https://demo.taskifai.com/api/health (5 min interval)
+3. Configure email alerts
 
 ---
 
@@ -1050,106 +818,121 @@ sudo logrotate -f /etc/logrotate.d/taskifai
 
 ### Service Down
 
+**1. Identify Issue via MCP:**
+```
+"Show status for taskifai-demo"
+"Show latest logs for taskifai-demo demo-api"
+```
+
+**2. Quick Restart:**
+```
+"Restart taskifai-demo"
+```
+
+**3. If Restart Fails:**
+```
+"Rollback taskifai-demo to previous deployment"
+```
+
+**4. Verify Recovery:**
 ```bash
-# 1. Identify which service is down
-sudo systemctl status taskifai-demo-api
-sudo systemctl status taskifai-demo-worker
-
-# 2. Check logs for errors
-sudo journalctl -u taskifai-demo-api -n 100 --no-pager
-
-# 3. Restart service
-sudo systemctl restart taskifai-demo-api
-
-# 4. If restart fails, check dependencies
-sudo systemctl status redis-server
-sudo systemctl status nginx
-
-# 5. Verify recovery
 curl https://demo.taskifai.com/api/health
 ```
 
-### Data Loss
+### Database Issues
 
+**1. Check Supabase Status:**
+- Visit: https://status.supabase.com
+- Check for outages
+
+**2. Verify Connection:**
+
+Test from local machine:
 ```bash
-# 1. Check Supabase backups
-# Navigate to: Supabase Dashboard → Database → Backups
-# Restore from latest backup if needed
-
-# 2. Check local backups
-ls -lh /backups/taskifai/
-
-# 3. Restore uploads directory
-tar -xzf /backups/taskifai/latest/uploads.tar.gz -C /var/www/taskifai-demo/
+psql "postgresql://postgres:[password]@db.xxxxx.supabase.co:5432/postgres"
 ```
+
+**3. Restore from Backup:**
+- Supabase Dashboard → Database → Backups
+- Select backup point
+- Restore
 
 ### Security Breach
 
+**1. Rotate All Secrets Immediately:**
+
+Generate new keys:
 ```bash
-# 1. Rotate all secrets immediately
-# Generate new SECRET_KEY
 openssl rand -hex 32
-
-# Update .env on all servers
-nano /var/www/taskifai-demo/backend/.env
-
-# Restart services
-sudo systemctl restart taskifai-demo-api
-
-# 2. Revoke and regenerate API keys
-# - OpenAI API key
-# - SendGrid API key
-# - Supabase service keys (if compromised)
-
-# 3. Force logout all users
-# (Invalidate all JWT tokens by changing SECRET_KEY)
-
-# 4. Review access logs
-sudo tail -f /var/log/nginx/access.log | grep -E '(POST|DELETE)'
-
-# 5. Check for unauthorized uploads
-SELECT * FROM upload_batches
-WHERE upload_timestamp >= NOW() - INTERVAL '24 hours'
-ORDER BY upload_timestamp DESC;
 ```
+
+Update via MCP:
+```
+"Update taskifai-demo environment variable SECRET_KEY to [new-value]"
+"Restart taskifai-demo"
+```
+
+**2. Revoke API Keys:**
+- OpenAI: https://platform.openai.com/api-keys
+- SendGrid: https://app.sendgrid.com/settings/api_keys
+- Supabase: Project settings → API → Revoke service key
+- DigitalOcean: API → Tokens → Revoke
+
+**3. Review Access Logs:**
+
+Check Supabase logs and upload history for unauthorized activity.
+
+**4. Force User Logout:**
+
+Changing SECRET_KEY invalidates all JWT tokens.
 
 ---
 
 ## Quick Reference
 
-### Essential Commands
+### Essential MCP Commands
 
 ```bash
-# Service management
-sudo systemctl restart taskifai-demo-api
-sudo systemctl restart taskifai-demo-worker
-sudo systemctl reload nginx
+# List all apps
+"List my DigitalOcean apps"
 
-# Logs
-sudo journalctl -u taskifai-demo-api -f
-sudo journalctl -u taskifai-demo-worker -f
-sudo tail -f /var/log/nginx/error.log
+# Show app status
+"Show status for taskifai-demo"
 
-# Health checks
-curl https://demo.taskifai.com/api/health
-redis-cli ping
-celery -A app.workers.celery_app inspect active
+# View logs
+"Show logs for taskifai-demo demo-api"
 
-# Deployments
-cd /var/www/taskifai-demo
-git pull origin main
-cd backend && source venv/bin/activate && pip install -r requirements.txt
-cd ../frontend && npm install && npm run build
-sudo systemctl restart taskifai-demo-api taskifai-demo-worker
-sudo systemctl reload nginx
+# Restart app
+"Restart taskifai-demo"
+
+# Deploy latest code
+"Deploy latest code from main to taskifai-demo"
+
+# Rollback
+"Rollback taskifai-demo to previous deployment"
+
+# Scale resources
+"Update taskifai-demo demo-api to professional-s instance"
+"Scale taskifai-demo demo-api to 2 instances"
+
+# Check metrics
+"Show CPU usage for taskifai-demo"
+"Show bandwidth for taskifai-demo this month"
 ```
 
-### Support Contacts
+### Health Check URLs
 
-- Infrastructure Issues: devops@taskifai.com
-- Application Issues: support@taskifai.com
-- Security Issues: security@taskifai.com
-- Emergency: [Phone number]
+```
+Central Login: https://app.taskifai.com/api/health
+Demo Tenant: https://demo.taskifai.com/api/health
+BIBBI Tenant: https://bibbi.taskifai.com/api/health
+```
+
+### Support Resources
+
+- **DigitalOcean Support:** https://www.digitalocean.com/support
+- **Supabase Support:** https://supabase.com/support
+- **App Platform Docs:** https://docs.digitalocean.com/products/app-platform/
 
 ---
 
@@ -1157,17 +940,16 @@ sudo systemctl reload nginx
 
 You now have:
 
-✅ **Infrastructure Deployment Guide** - Server setup, DNS, SSL
-✅ **Customer Onboarding Guide** - BIBBI example walkthrough
-✅ **Vendor Processor Guide** - Customization patterns
-✅ **Deployment Checklist** - Step-by-step verification
-✅ **Troubleshooting Guide** - Common issues & solutions
+✅ **Complete deployment checklist** for central login + tenants
+✅ **Step-by-step verification** procedures
+✅ **Common issue troubleshooting** guides
+✅ **Monitoring strategies** for daily/weekly/monthly
+✅ **Emergency procedures** for critical situations
 
 **Next Steps:**
-1. Deploy central login server
-2. Deploy demo tenant
-3. Test complete user flow
-4. Setup monitoring
-5. Plan next customer onboarding (BIBBI)
+1. Execute deployment checklist
+2. Setup monitoring (Uptime Robot)
+3. Schedule weekly health reviews
+4. Document any custom procedures
 
 **Good luck with your deployment! 🚀**

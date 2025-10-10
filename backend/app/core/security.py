@@ -5,6 +5,7 @@ Security utilities for authentication and authorization
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 import base64
+import uuid
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -39,7 +40,8 @@ def create_access_token(
     subdomain: Optional[str] = None,
     role: Optional[str] = None,
     expires_minutes: Optional[int] = None,
-    expires_delta: Optional[timedelta] = None
+    expires_delta: Optional[timedelta] = None,
+    add_jti: bool = False
 ) -> str:
     """
     Create JWT access token with optional tenant claims
@@ -51,6 +53,7 @@ def create_access_token(
         role: User role (member, admin, super_admin) for authorization
         expires_minutes: Optional expiration time in minutes (overrides expires_delta)
         expires_delta: Optional custom expiration timedelta
+        add_jti: If True, add JWT ID for one-time use tracking (default False)
 
     Returns:
         Encoded JWT token string with tenant claims (if provided)
@@ -66,7 +69,8 @@ def create_access_token(
         >>> # Temporary token without tenant (multi-tenant user)
         >>> temp_token = create_access_token(
         ...     {"sub": "user_id", "email": "user@example.com", "temp": True},
-        ...     expires_minutes=5
+        ...     expires_minutes=5,
+        ...     add_jti=True  # Enable one-time use tracking
         ... )
     """
     to_encode = data.copy()
@@ -80,6 +84,13 @@ def create_access_token(
     # Add role claim if provided
     if role:
         to_encode["role"] = role
+
+    # Add JWT ID for one-time use tracking (if requested)
+    if add_jti:
+        to_encode["jti"] = str(uuid.uuid4())
+
+    # Add issued-at timestamp (useful for debugging and token freshness checks)
+    to_encode["iat"] = datetime.now(timezone.utc)
 
     # Determine expiration time
     if expires_minutes:

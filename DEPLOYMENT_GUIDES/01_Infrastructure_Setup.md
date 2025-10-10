@@ -1,29 +1,32 @@
-# TaskifAI Platform - Infrastructure Deployment Guide
+# TaskifAI Platform - App Platform Infrastructure Guide
 
 ## Table of Contents
 1. [Architecture Overview](#architecture-overview)
-2. [Server Requirements](#server-requirements)
-3. [Domain & DNS Configuration](#domain--dns-configuration)
-4. [Server Setup by Component](#server-setup-by-component)
-5. [Environment Configuration](#environment-configuration)
-6. [Deployment Steps](#deployment-steps)
-7. [Monitoring & Maintenance](#monitoring--maintenance)
+2. [App Platform Components](#app-platform-components)
+3. [Environment Configuration](#environment-configuration)
+4. [DNS & Domain Setup](#dns--domain-setup)
+5. [Database Configuration](#database-configuration)
+6. [Monitoring & Scaling](#monitoring--scaling)
 
 ---
 
 ## Architecture Overview
 
-### Multi-Tenant Architecture
+### Multi-Tenant App Platform Architecture
 
-TaskifAI uses a **centralized login + isolated tenant architecture**:
+TaskifAI uses **DigitalOcean App Platform** with a centralized login + isolated tenant model:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                  app.taskifai.com                           │
-│         (Central Login & Routing Server)                    │
-│  - Tenant discovery                                         │
-│  - Authentication initiation                                │
-│  - Tenant routing                                           │
+│         (Central Login App)                                 │
+│  Components:                                                │
+│   - Static Site (Frontend) - FREE                           │
+│   - Web Service (API) - $5/mo                               │
+│  Features:                                                  │
+│   - Tenant discovery                                        │
+│   - Authentication routing                                  │
+│   - Rate limiting                                           │
 └─────────────────────────────────────────────────────────────┘
                         │
         ┌───────────────┼───────────────┐
@@ -33,8 +36,15 @@ TaskifAI uses a **centralized login + isolated tenant architecture**:
 │ demo.        │ │ bibbi.       │ │ customer3.   │
 │ taskifai.com │ │ taskifai.com │ │ taskifai.com │
 │              │ │              │ │              │
-│ Tenant App   │ │ Tenant App   │ │ Tenant App   │
+│ App Platform │ │ App Platform │ │ App Platform │
 │ Instance     │ │ Instance     │ │ Instance     │
+│              │ │              │ │              │
+│ - Frontend   │ │ - Frontend   │ │ - Frontend   │
+│   (Free)     │ │   (Free)     │ │   (Free)     │
+│ - API        │ │ - API        │ │ - API        │
+│   ($12/mo)   │ │   ($12/mo)   │ │   ($12/mo)   │
+│ - Worker     │ │ - Worker     │ │ - Worker     │
+│   ($5/mo)    │ │   ($5/mo)    │ │   ($5/mo)    │
 └──────────────┘ └──────────────┘ └──────────────┘
         │               │               │
         ▼               ▼               ▼
@@ -45,438 +55,318 @@ TaskifAI uses a **centralized login + isolated tenant architecture**:
 └──────────────┘ └──────────────┘ └──────────────┘
 ```
 
-### Key Infrastructure Components
+### Key Infrastructure Benefits
 
-1. **Central Login Server** (`app.taskifai.com`)
-   - Frontend: Static React app
-   - Backend API: FastAPI for tenant discovery
-   - Database: Tenant registry (Supabase)
-
-2. **Tenant Application Servers** (`{subdomain}.taskifai.com`)
-   - Frontend: React app
-   - Backend API: FastAPI with full features
-   - Worker: Celery for background tasks
-   - Redis: Task queue & caching
-   - Database: Isolated Supabase project per tenant
+✅ **No Server Management** - App Platform handles all infrastructure
+✅ **Auto-Scaling** - Automatically handles traffic spikes
+✅ **Zero-Downtime Deploys** - Rolling updates with health checks
+✅ **Built-in SSL/TLS** - Automatic HTTPS with Let's Encrypt
+✅ **Git Integration** - Deploy on push to GitHub
+✅ **Monitoring Included** - Metrics, logs, alerts built-in
+✅ **DDoS Protection** - Edge protection included
+✅ **Load Balancing** - Automatic for multi-instance apps
 
 ---
 
-## Server Requirements
+## App Platform Components
 
-### Option A: Dedicated Servers (Recommended for Production)
+### 1. Central Login App (`taskifai-central`)
 
-| Component | Server Type | Specs | Quantity |
-|-----------|-------------|-------|----------|
-| **Central Login** | Small VPS | 1 vCPU, 1GB RAM | 1 |
-| **Tenant App** | Medium VPS | 2 vCPU, 4GB RAM | 1 per tenant |
-| **Redis** | Small VPS | 1 vCPU, 1GB RAM | 1 per tenant |
-| **Database** | Supabase (managed) | Varies | 1 per tenant + 1 registry |
+**Purpose:** Tenant discovery and routing
 
-### Option B: Single Server (Development/Small Scale)
+#### Components
 
-| Component | Server Type | Specs | Quantity |
-|-----------|-------------|-------|----------|
-| **All-in-One** | Large VPS | 4 vCPU, 8GB RAM | 1 |
-| **Database** | Supabase (managed) | Varies | 2 (registry + demo) |
+**A. Static Site (Frontend)**
+```yaml
+name: central-frontend
+type: static_site
+source_dir: frontend
+build_command: npm install && npm run build
+output_dir: dist
+env:
+  - VITE_API_URL: https://app.taskifai.com/api
+routes:
+  - path: /
+```
 
-### Option C: Cloud Orchestration (Scalable)
+**Specs:**
+- Build time: 2-3 minutes
+- Deploy time: 1 minute
+- Cost: **FREE** (3 static sites included)
 
-| Component | Service Type | Provider Options |
-|-----------|--------------|------------------|
-| **Frontend** | Static Hosting | Vercel / Netlify / Cloudflare Pages |
-| **Backend API** | Container Service | AWS ECS / Google Cloud Run / DigitalOcean App Platform |
-| **Worker** | Container Service | Same as backend |
-| **Redis** | Managed Redis | Upstash / Redis Cloud / AWS ElastiCache |
-| **Database** | Supabase (managed) | Supabase Cloud |
+**B. Web Service (API)**
+```yaml
+name: central-api
+type: web
+dockerfile_path: backend/Dockerfile
+http_port: 8000
+instance_size: basic-xxs (512MB RAM)
+instance_count: 1
+health_check:
+  path: /api/health
+env:
+  - SECRET_KEY: [generated]
+  - SUPABASE_URL: [registry project]
+  - SUPABASE_ANON_KEY: [registry anon key]
+  - SUPABASE_SERVICE_KEY: [registry service key]
+  - REDIS_URL: [upstash redis]
+  - RATE_LIMIT_ENABLED: true
+```
+
+**Specs:**
+- Memory: 512MB RAM
+- vCPUs: 1
+- Cost: **$5/month**
+- Auto-restart on crash
+- Health check every 30s
+
+**Total Central Login Cost:** $5/month
 
 ---
 
-## Domain & DNS Configuration
+### 2. Tenant App (`taskifai-demo`, `taskifai-bibbi`, etc.)
 
-### DNS Records Required
+**Purpose:** Full application functionality per customer
 
-```dns
-# Central Login Portal
-app.taskifai.com          A       <central-login-server-ip>
-app.taskifai.com          AAAA    <ipv6-optional>
+#### Components
 
-# Wildcard for Tenant Subdomains
-*.taskifai.com            A       <tenant-server-ip>
-*.taskifai.com            AAAA    <ipv6-optional>
-
-# Or individual tenant subdomains
-demo.taskifai.com         A       <demo-tenant-server-ip>
-bibbi.taskifai.com        A       <bibbi-tenant-server-ip>
+**A. Static Site (Frontend)**
+```yaml
+name: demo-frontend
+type: static_site
+source_dir: frontend
+build_command: npm install && npm run build
+output_dir: dist
+env:
+  - VITE_API_URL: https://demo.taskifai.com/api
+routes:
+  - path: /
 ```
 
-### SSL/TLS Certificates
+**Specs:**
+- Build time: 2-3 minutes
+- Cost: **FREE**
 
-**Option 1: Wildcard Certificate (Recommended)**
-```bash
-# Using Let's Encrypt with Certbot
-certbot certonly --dns-cloudflare \
-  -d taskifai.com -d *.taskifai.com \
-  --email admin@taskifai.com
+**B. Web Service (API)**
+```yaml
+name: demo-api
+type: web
+dockerfile_path: backend/Dockerfile
+http_port: 8000
+instance_size: professional-xs (1GB RAM)
+instance_count: 1
+health_check:
+  path: /api/health
+  timeout: 5s
+  initial_delay: 10s
+env:
+  - APP_NAME: TaskifAI Analytics Platform - Demo
+  - SECRET_KEY: [unique per tenant]
+  - SUPABASE_URL: [tenant-specific]
+  - SUPABASE_ANON_KEY: [tenant-specific]
+  - SUPABASE_SERVICE_KEY: [tenant-specific]
+  - REDIS_URL: [shared upstash]
+  - OPENAI_API_KEY: [shared]
+  - SENDGRID_API_KEY: [shared]
+  - MAX_UPLOAD_SIZE: 104857600
+  - ALLOWED_ORIGINS: https://demo.taskifai.com
 ```
 
-**Option 2: Individual Certificates**
-```bash
-# Central login
-certbot certonly --nginx -d app.taskifai.com
+**Specs:**
+- Memory: 1GB RAM
+- vCPUs: 1
+- Cost: **$12/month**
+- Handles 100-500 req/min
 
-# Each tenant
-certbot certonly --nginx -d demo.taskifai.com
-certbot certonly --nginx -d bibbi.taskifai.com
+**C. Worker Service (Celery)**
+```yaml
+name: demo-worker
+type: worker
+dockerfile_path: backend/Dockerfile
+instance_size: basic-xxs (512MB RAM)
+instance_count: 1
+run_command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4
+env:
+  [same as demo-api]
 ```
+
+**Specs:**
+- Memory: 512MB RAM
+- vCPUs: 1
+- Cost: **$5/month**
+- Processes background tasks
+- Auto-restart on failure
+
+**Total Per Tenant Cost:** $17/month (API + Worker)
 
 ---
 
-## Server Setup by Component
+## Environment Configuration
 
-### 1. Central Login Server (`app.taskifai.com`)
+### Central Login Environment Variables
 
-#### Purpose
-- Handles tenant discovery
-- Initial authentication
-- Routes users to correct tenant subdomain
-- Does NOT store customer data
-
-#### Server Setup (Ubuntu 22.04 LTS)
-
-```bash
-# 1. Initial server setup
-apt update && apt upgrade -y
-apt install -y nginx certbot python3-certbot-nginx nodejs npm git
-
-# 2. Create application directory
-mkdir -p /var/www/taskifai-central
-cd /var/www/taskifai-central
-
-# 3. Clone repository
-git clone https://github.com/yourusername/taskifai-platform.git .
-
-# 4. Setup frontend (central login portal)
-cd frontend
-npm install
-npm run build
-
-# Frontend build output will be in frontend/dist
-
-# 5. Setup backend API (tenant discovery only)
-cd ../backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# 6. Configure environment variables
-cat > .env << EOF
-APP_NAME="TaskifAI Central Login"
-DEBUG=false
-
+**Required:**
+```env
 # Security
-SECRET_KEY=$(openssl rand -hex 32)
+SECRET_KEY=generate-with-openssl-rand-hex-32
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=1440
 
-# Tenant Registry Database (Supabase)
+# Tenant Registry Database
 SUPABASE_URL=https://your-registry-project.supabase.co
-SUPABASE_ANON_KEY=your-registry-anon-key
-SUPABASE_SERVICE_KEY=your-registry-service-key
+SUPABASE_ANON_KEY=eyJhbGc...
+SUPABASE_SERVICE_KEY=eyJhbGc...
 
-# Redis (shared or local)
-REDIS_URL=redis://localhost:6379/0
+# Redis (shared)
+REDIS_URL=redis://default:password@hostname.upstash.io:6379
 
 # CORS - Allow all tenant subdomains
 ALLOWED_ORIGINS=https://demo.taskifai.com,https://bibbi.taskifai.com,https://*.taskifai.com
 
 # Rate Limiting
 RATE_LIMIT_ENABLED=true
-EOF
+```
 
-# 7. Setup systemd service for backend
-cat > /etc/systemd/system/taskifai-central-api.service << EOF
-[Unit]
-Description=TaskifAI Central Login API
-After=network.target
-
-[Service]
-Type=simple
-User=www-data
-WorkingDirectory=/var/www/taskifai-central/backend
-Environment="PATH=/var/www/taskifai-central/backend/venv/bin"
-ExecStart=/var/www/taskifai-central/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl daemon-reload
-systemctl enable taskifai-central-api
-systemctl start taskifai-central-api
-
-# 8. Configure Nginx
-cat > /etc/nginx/sites-available/app.taskifai.com << 'EOF'
-server {
-    listen 80;
-    server_name app.taskifai.com;
-
-    # Redirect HTTP to HTTPS
-    return 301 https://$server_name$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name app.taskifai.com;
-
-    # SSL Configuration
-    ssl_certificate /etc/letsencrypt/live/app.taskifai.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/app.taskifai.com/privkey.pem;
-
-    # Security headers
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-    add_header X-Frame-Options "DENY" always;
-    add_header X-Content-Type-Options "nosniff" always;
-
-    # Frontend (React SPA)
-    location / {
-        root /var/www/taskifai-central/frontend/dist;
-        try_files $uri $uri/ /index.html;
-
-        # Cache static assets
-        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
-            expires 1y;
-            add_header Cache-Control "public, immutable";
-        }
-    }
-
-    # Backend API
-    location /api {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        # Timeouts
-        proxy_connect_timeout 60s;
-        proxy_send_timeout 60s;
-        proxy_read_timeout 60s;
-    }
-}
-EOF
-
-ln -s /etc/nginx/sites-available/app.taskifai.com /etc/nginx/sites-enabled/
-nginx -t && systemctl reload nginx
-
-# 9. Setup SSL
-certbot --nginx -d app.taskifai.com --non-interactive --agree-tos -m admin@taskifai.com
-
-# 10. Setup firewall
-ufw allow 22/tcp  # SSH
-ufw allow 80/tcp  # HTTP
-ufw allow 443/tcp # HTTPS
-ufw enable
+**Optional:**
+```env
+DEBUG=false
+LOG_LEVEL=info
 ```
 
 ---
 
-### 2. Tenant Application Server (e.g., `demo.taskifai.com`)
+### Tenant Environment Variables
 
-#### Purpose
-- Full application functionality
-- File processing
-- Analytics
-- AI chat
-- Data storage (isolated per tenant)
-
-#### Server Setup (Ubuntu 22.04 LTS)
-
-```bash
-# 1. Initial server setup
-apt update && apt upgrade -y
-apt install -y nginx certbot python3-certbot-nginx nodejs npm git redis-server
-
-# 2. Create application directory
-mkdir -p /var/www/taskifai-demo
-cd /var/www/taskifai-demo
-
-# 3. Clone repository
-git clone https://github.com/yourusername/taskifai-platform.git .
-
-# 4. Setup backend
-cd backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# 5. Configure environment variables
-cat > .env << EOF
-APP_NAME="TaskifAI Analytics Platform - Demo"
+**Required:**
+```env
+# App Identity
+APP_NAME=TaskifAI Analytics Platform - Demo
 DEBUG=false
 
-# Security
-SECRET_KEY=$(openssl rand -hex 32)
+# Security (unique per tenant)
+SECRET_KEY=tenant-specific-secret-key-32-chars
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=1440
 
-# Supabase (Demo tenant database)
-SUPABASE_URL=https://demo-tenant-project.supabase.co
-SUPABASE_ANON_KEY=demo-tenant-anon-key
-SUPABASE_SERVICE_KEY=demo-tenant-service-key
+# Tenant Database (isolated per tenant)
+SUPABASE_URL=https://demo-project.supabase.co
+SUPABASE_ANON_KEY=demo-anon-key
+SUPABASE_SERVICE_KEY=demo-service-key
 
-# Redis
-REDIS_URL=redis://localhost:6379/0
+# Redis (shared across tenants)
+REDIS_URL=redis://default:password@hostname.upstash.io:6379
 
-# OpenAI
-OPENAI_API_KEY=sk-your-openai-api-key
+# AI Chat
+OPENAI_API_KEY=sk-your-openai-key
 OPENAI_MODEL=gpt-4o-mini
 
-# SendGrid
-SENDGRID_API_KEY=SG.your-sendgrid-api-key
+# Email (shared)
+SENDGRID_API_KEY=SG.your-sendgrid-key
 SENDGRID_FROM_EMAIL=noreply@taskifai.com
 SENDGRID_FROM_NAME=TaskifAI Demo
 
-# File Upload
+# File Uploads
 MAX_UPLOAD_SIZE=104857600
-UPLOAD_DIR=/var/www/taskifai-demo/uploads
+UPLOAD_DIR=/tmp/uploads
 
-# CORS
+# CORS (tenant-specific)
 ALLOWED_ORIGINS=https://demo.taskifai.com
-EOF
+```
 
-# 6. Create uploads directory
-mkdir -p /var/www/taskifai-demo/uploads
-chown www-data:www-data /var/www/taskifai-demo/uploads
+**Celery Worker (same as API):**
+- Worker uses same environment variables as API
+- Shares Redis connection for task queue
 
-# 7. Setup backend API service
-cat > /etc/systemd/system/taskifai-demo-api.service << EOF
-[Unit]
-Description=TaskifAI Demo API
-After=network.target redis.service
+---
 
-[Service]
-Type=simple
-User=www-data
-WorkingDirectory=/var/www/taskifai-demo/backend
-Environment="PATH=/var/www/taskifai-demo/backend/venv/bin"
-ExecStart=/var/www/taskifai-demo/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
-Restart=always
+## DNS & Domain Setup
 
-[Install]
-WantedBy=multi-user.target
-EOF
+### DNS Records Required
 
-# 8. Setup Celery worker service
-cat > /etc/systemd/system/taskifai-demo-worker.service << EOF
-[Unit]
-Description=TaskifAI Demo Celery Worker
-After=network.target redis.service
+#### Option 1: Wildcard CNAME (Recommended)
 
-[Service]
-Type=simple
-User=www-data
-WorkingDirectory=/var/www/taskifai-demo/backend
-Environment="PATH=/var/www/taskifai-demo/backend/venv/bin"
-ExecStart=/var/www/taskifai-demo/backend/venv/bin/celery -A app.workers.celery_app worker --loglevel=info --concurrency=4
-Restart=always
+```dns
+# Root domain
+@                A       <your-server-if-needed>
 
-[Install]
-WantedBy=multi-user.target
-EOF
+# Central login
+app              CNAME   app-xxxxx.ondigitalocean.app.
 
-systemctl daemon-reload
-systemctl enable taskifai-demo-api taskifai-demo-worker
-systemctl start taskifai-demo-api taskifai-demo-worker
+# Wildcard for all tenants
+*.taskifai.com   CNAME   app-xxxxx.ondigitalocean.app.
+```
 
-# 9. Setup frontend
-cd ../frontend
-npm install
+**Pros:**
+- One DNS entry for all future tenants
+- No DNS updates when adding tenants
+- Simpler management
 
-# Configure environment
-cat > .env << EOF
-VITE_API_URL=https://demo.taskifai.com/api
-VITE_ENVIRONMENT=production
-EOF
+**Cons:**
+- Not all DNS providers support wildcard CNAME
 
-npm run build
+#### Option 2: Individual CNAMEs
 
-# 10. Configure Nginx
-cat > /etc/nginx/sites-available/demo.taskifai.com << 'EOF'
-server {
-    listen 80;
-    server_name demo.taskifai.com;
-    return 301 https://$server_name$request_uri;
-}
+```dns
+# Central login
+app              CNAME   app-central-xxxxx.ondigitalocean.app.
 
-server {
-    listen 443 ssl http2;
-    server_name demo.taskifai.com;
+# Each tenant
+demo             CNAME   app-demo-xxxxx.ondigitalocean.app.
+bibbi            CNAME   app-bibbi-xxxxx.ondigitalocean.app.
+customer3        CNAME   app-customer3-xxxxx.ondigitalocean.app.
+```
 
-    # SSL Configuration
-    ssl_certificate /etc/letsencrypt/live/demo.taskifai.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/demo.taskifai.com/privkey.pem;
+**Pros:**
+- Works with all DNS providers
+- More granular control
 
-    # Security headers
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-    add_header X-Frame-Options "DENY" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-XSS-Protection "1; mode=block" always;
+**Cons:**
+- Need to add DNS entry for each new tenant
 
-    # Frontend (React SPA)
-    location / {
-        root /var/www/taskifai-demo/frontend/dist;
-        try_files $uri $uri/ /index.html;
+---
 
-        # Cache static assets
-        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
-            expires 1y;
-            add_header Cache-Control "public, immutable";
-        }
-    }
+### SSL/TLS Configuration
 
-    # Backend API
-    location /api {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+**Automatic SSL:**
+- App Platform automatically provisions Let's Encrypt certificates
+- Certificates auto-renew before expiration
+- HTTPS enforced by default
+- HTTP → HTTPS redirect automatic
 
-        # File upload support
-        client_max_body_size 100M;
+**Custom Domain Setup:**
 
-        # Timeouts for long-running requests
-        proxy_connect_timeout 300s;
-        proxy_send_timeout 300s;
-        proxy_read_timeout 300s;
-    }
-}
-EOF
+1. Deploy app via MCP
+2. Get App Platform URL (e.g., `app-demo-xxxxx.ondigitalocean.app`)
+3. Add CNAME in DNS provider
+4. Wait 5-30 minutes for DNS propagation
+5. App Platform automatically detects domain
+6. SSL certificate provisioned automatically (2-5 minutes)
 
-ln -s /etc/nginx/sites-available/demo.taskifai.com /etc/nginx/sites-enabled/
-nginx -t && systemctl reload nginx
+**Verification:**
+```bash
+# Check DNS propagation
+dig demo.taskifai.com
 
-# 11. Setup SSL
-certbot --nginx -d demo.taskifai.com --non-interactive --agree-tos -m admin@taskifai.com
+# Check HTTPS
+curl -I https://demo.taskifai.com
 
-# 12. Setup firewall
-ufw allow 22/tcp  # SSH
-ufw allow 80/tcp  # HTTP
-ufw allow 443/tcp # HTTPS
-ufw enable
+# Expected:
+HTTP/2 200
+strict-transport-security: max-age=31536000
 ```
 
 ---
 
-## Environment Configuration
+## Database Configuration
 
-### Tenant Registry Database (Supabase)
+### Supabase Projects Required
 
-Create a **dedicated Supabase project** for the tenant registry:
+**1. Tenant Registry (Central Login)**
+
+Purpose: Store tenant metadata and user-tenant mappings
 
 ```sql
--- Create tenant registry tables
+-- Create tables
 CREATE TABLE IF NOT EXISTS tenants (
     tenant_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     subdomain VARCHAR(63) UNIQUE NOT NULL,
@@ -498,211 +388,311 @@ CREATE TABLE IF NOT EXISTS user_tenants (
 
 CREATE INDEX idx_user_tenants_email ON user_tenants(email);
 CREATE INDEX idx_user_tenants_tenant ON user_tenants(tenant_id);
-
--- Insert demo tenant
-INSERT INTO tenants (subdomain, display_name, database_url, database_anon_key)
-VALUES (
-    'demo',
-    'Demo Account',
-    'https://demo-tenant-project.supabase.co',
-    'demo-tenant-anon-key-here'
-);
 ```
 
-### Per-Tenant Database (Supabase)
+**2. Tenant Databases (Per Customer)**
 
-Each tenant gets a **dedicated Supabase project**. Run the schema:
+Each tenant gets isolated Supabase project:
 
-```bash
-# Copy schema to Supabase SQL Editor
-cat backend/db/schema.sql | pbcopy  # or xclip on Linux
+- **Demo Tenant:** `TaskifAI-Demo` project
+- **BIBBI Tenant:** `TaskifAI-BIBBI` project
+- **Customer3 Tenant:** `TaskifAI-Customer3` project
 
-# Then execute in Supabase SQL Editor:
-# 1. Navigate to project > SQL Editor
-# 2. Paste schema
-# 3. Run
+**Schema:** Use `backend/db/schema.sql` for each tenant project
+
+**RLS Policies:** Automatically applied from schema.sql
+
+**Backup:**
+- Free tier: Daily automatic backups (7 days retention)
+- Pro tier: Point-in-time recovery
+
+---
+
+### Redis Configuration (Upstash)
+
+**Setup:**
+
+1. Create account: https://upstash.com
+2. Create Redis database: `taskifai-redis`
+3. Region: **Global** (multi-region)
+4. Copy connection string
+
+**Free Tier Limits:**
+- 10,000 commands/day
+- 256MB storage
+- Multi-region replication
+
+**Shared Usage:**
+- All tenants share one Redis instance
+- Separate key namespaces per tenant
+- Pattern: `tenant:{subdomain}:*`
+
+**Upgrade When:**
+- >10K commands/day: $10/month for unlimited
+- Need more storage: $10/month for 1GB
+
+---
+
+## Monitoring & Scaling
+
+### Built-in Monitoring
+
+**App Platform Dashboard:**
+
+Access: DigitalOcean Dashboard → Apps → [app-name]
+
+**Metrics Available:**
+- CPU usage (%)
+- Memory usage (MB)
+- Request rate (req/min)
+- Response time (ms)
+- Error rate (%)
+- Bandwidth usage (GB)
+
+**Logs:**
+- Real-time build logs
+- Application logs (stdout/stderr)
+- Deployment logs
+- Error tracking
+
+**Alerts:**
+- CPU >80% for 5 minutes
+- Memory >90% for 5 minutes
+- Health check failures
+- Deployment failures
+
+---
+
+### Scaling Strategies
+
+#### Vertical Scaling (Increase Resources)
+
+**When to scale up:**
+- CPU consistently >70%
+- Memory consistently >80%
+- Response time degradation
+
+**Instance Sizes:**
+```
+basic-xxs:  512MB RAM, 1 vCPU  → $5/mo
+basic-xs:   1GB RAM,   1 vCPU  → $12/mo
+professional-xs: 1GB RAM, 1 vCPU → $12/mo
+professional-s:  2GB RAM, 2 vCPU → $24/mo
+professional-m:  4GB RAM, 2 vCPU → $48/mo
+```
+
+**Scale via MCP:**
+```
+"Update taskifai-demo demo-api to professional-s instance"
+```
+
+#### Horizontal Scaling (Add Instances)
+
+**When to scale out:**
+- Traffic spikes expected
+- Need high availability
+- CPU/RAM at limits with one instance
+
+**Scale via MCP:**
+```
+"Scale taskifai-demo demo-api to 2 instances"
+```
+
+**Cost Impact:**
+- 2 instances = 2× cost
+- Load balancer included (no extra cost)
+- Auto-distribution of traffic
+
+**Benefits:**
+- Zero-downtime deployments
+- Rolling updates
+- Fault tolerance
+
+---
+
+### Cost Optimization
+
+#### Strategy 1: Right-Size Instances
+
+Monitor resource usage and downsize if underutilized:
+
+```
+"Show resource usage for taskifai-demo"
+```
+
+If CPU <30% and Memory <50% consistently:
+```
+"Update taskifai-demo demo-api to basic-xs instance"
+```
+
+**Savings:** $12/mo → $5/mo (save $7/mo)
+
+#### Strategy 2: Combine Worker with API (Low Traffic)
+
+For tenants with <100 uploads/day:
+
+```
+"Delete taskifai-demo demo-worker component"
+"Update taskifai-demo demo-api run command to:
+  uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+  celery -A app.workers.celery_app worker --loglevel=info --concurrency=2"
+```
+
+**Savings:** $5/mo (eliminate dedicated worker)
+
+**Trade-off:** Shared resources may impact performance
+
+#### Strategy 3: Use Spaces for File Storage
+
+**Current:** Files in `/tmp` (lost on restart)
+
+**Better:** DigitalOcean Spaces (S3-compatible)
+
+**Cost:** $5/mo for 250GB + bandwidth
+
+**Benefits:**
+- Persistent storage
+- Better performance
+- CDN integration
+- Automatic backups
+
+---
+
+### Health Monitoring
+
+#### Application Health Checks
+
+**Configured in App Spec:**
+```yaml
+health_check:
+  path: /api/health
+  timeout: 5s
+  initial_delay: 10s
+  period: 30s
+  success_threshold: 1
+  failure_threshold: 3
+```
+
+**How it works:**
+1. App Platform hits `/api/health` every 30s
+2. Expects HTTP 200 response
+3. After 3 failures → restart instance
+4. After 5 failures → alert + rollback
+
+**Health Endpoint Response:**
+```json
+{
+  "status": "healthy",
+  "database": "connected",
+  "redis": "connected",
+  "timestamp": "2025-01-09T12:00:00Z"
+}
+```
+
+#### External Monitoring (Optional)
+
+**Uptime Robot (Free):**
+- Monitor: https://demo.taskifai.com/api/health
+- Interval: 5 minutes
+- Alert: Email/SMS on downtime
+
+**Better Uptime ($10/mo):**
+- Multi-region monitoring
+- SSL certificate expiry alerts
+- API endpoint monitoring
+- Slack/PagerDuty integration
+
+---
+
+## Deployment Workflow
+
+### Git-Based Deployment
+
+**Automatic Deploy on Push:**
+
+1. Push code to GitHub: `git push origin main`
+2. App Platform detects change
+3. Automatic build triggered
+4. Tests run (if configured)
+5. Deploy with zero downtime
+6. Health checks validate
+7. Old version kept for rollback
+
+**Manual Deploy via MCP:**
+```
+"Deploy latest code from main branch to taskifai-demo"
+```
+
+**Rollback if needed:**
+```
+"Rollback taskifai-demo to previous deployment"
 ```
 
 ---
 
-## Deployment Steps
+## Security Features
 
-### Step-by-Step Deployment Checklist
+### Built-in Security
 
-#### Phase 1: Central Login Server
+✅ **DDoS Protection** - Edge network filtering
+✅ **Auto SSL/TLS** - Let's Encrypt certificates
+✅ **HTTPS Enforcement** - HTTP → HTTPS redirect
+✅ **Security Headers** - HSTS, X-Frame-Options auto-added
+✅ **Private Networking** - Components can communicate privately
+✅ **Secrets Management** - Environment variables encrypted
 
-- [ ] Provision server (VPS or cloud)
-- [ ] Configure DNS: `app.taskifai.com` → server IP
-- [ ] Setup SSL certificate
-- [ ] Create tenant registry Supabase project
-- [ ] Run tenant registry schema
-- [ ] Deploy central login backend
-- [ ] Deploy central login frontend
-- [ ] Test tenant discovery endpoint
-- [ ] Verify rate limiting
+### Best Practices
 
-#### Phase 2: Demo Tenant (First Tenant)
+**Environment Variables:**
+- Never commit secrets to Git
+- Use App Platform environment variable encryption
+- Rotate API keys quarterly
 
-- [ ] Provision server (or use same server)
-- [ ] Configure DNS: `demo.taskifai.com` → server IP
-- [ ] Setup SSL certificate
-- [ ] Create demo tenant Supabase project
-- [ ] Run application schema in demo project
-- [ ] Register demo tenant in registry
-- [ ] Deploy demo backend API
-- [ ] Deploy demo Celery worker
-- [ ] Deploy demo frontend
-- [ ] Test full user flow (login → upload → analytics)
+**Access Control:**
+- Limit DigitalOcean API token scope
+- Use separate tokens for different environments
+- Audit token usage regularly
 
-#### Phase 3: Additional Tenants (BIBBI, etc.)
-
-- [ ] Repeat Phase 2 for each new tenant
-- [ ] Update tenant registry with new entry
-- [ ] Configure tenant-specific vendor processors
-- [ ] Migrate/import customer data if needed
+**Network Security:**
+- CORS properly configured per tenant
+- Rate limiting on auth endpoints
+- Supabase RLS policies active
 
 ---
 
-## Monitoring & Maintenance
+## Summary
 
-### Health Checks
+### Infrastructure Stack
 
-```bash
-# Central Login API
-curl https://app.taskifai.com/api/health
+| Layer | Technology | Management |
+|-------|------------|------------|
+| **Compute** | App Platform Containers | DigitalOcean Managed |
+| **Frontend** | Static Sites (React) | App Platform CDN |
+| **Database** | Supabase (PostgreSQL) | Supabase Managed |
+| **Cache/Queue** | Redis (Upstash) | Upstash Managed |
+| **Storage** | Container /tmp or Spaces | Optional upgrade |
+| **Monitoring** | App Platform Dashboard | Built-in |
+| **SSL/TLS** | Let's Encrypt | Auto-managed |
+| **DNS** | Domain Registrar | Self-managed |
 
-# Tenant API
-curl https://demo.taskifai.com/api/health
+### Key Advantages
 
-# Redis
-redis-cli ping
+✅ **Zero Server Management** - No SSH, no updates, no patches
+✅ **Auto-Scaling** - Handle traffic automatically
+✅ **Fast Deployment** - 5-10 minute deploys
+✅ **Built-in Monitoring** - Logs, metrics, alerts included
+✅ **High Availability** - Multi-instance with load balancing
+✅ **Cost Effective** - $40/month for 3 tenants
 
-# Celery Worker
-celery -A app.workers.celery_app inspect active
-```
+### Next Steps
 
-### Log Locations
-
-```bash
-# API logs
-journalctl -u taskifai-demo-api -f
-
-# Worker logs
-journalctl -u taskifai-demo-worker -f
-
-# Nginx logs
-tail -f /var/log/nginx/access.log
-tail -f /var/log/nginx/error.log
-
-# Redis logs
-tail -f /var/log/redis/redis-server.log
-```
-
-### Backup Strategy
-
-1. **Database**: Supabase automatic backups (daily)
-2. **Uploads**: Backup `/var/www/taskifai-{tenant}/uploads` daily
-3. **Configuration**: Version control `.env` files (encrypted)
-
-```bash
-# Daily backup script
-cat > /usr/local/bin/backup-taskifai.sh << 'EOF'
-#!/bin/bash
-BACKUP_DIR=/backups/taskifai/$(date +%Y-%m-%d)
-mkdir -p $BACKUP_DIR
-
-# Backup uploads
-tar -czf $BACKUP_DIR/uploads.tar.gz /var/www/taskifai-demo/uploads
-
-# Backup configs (encrypted)
-tar -czf - /var/www/taskifai-demo/backend/.env | \
-  openssl enc -aes-256-cbc -salt -out $BACKUP_DIR/config.tar.gz.enc
-
-# Cleanup old backups (keep 30 days)
-find /backups/taskifai -mtime +30 -delete
-EOF
-
-chmod +x /usr/local/bin/backup-taskifai.sh
-
-# Add to crontab
-echo "0 2 * * * /usr/local/bin/backup-taskifai.sh" | crontab -
-```
-
-### Update Procedure
-
-```bash
-# 1. Backup current state
-/usr/local/bin/backup-taskifai.sh
-
-# 2. Pull latest code
-cd /var/www/taskifai-demo
-git pull origin main
-
-# 3. Update backend
-cd backend
-source venv/bin/activate
-pip install -r requirements.txt
-systemctl restart taskifai-demo-api taskifai-demo-worker
-
-# 4. Update frontend
-cd ../frontend
-npm install
-npm run build
-
-# 5. Reload Nginx
-systemctl reload nginx
-
-# 6. Verify health
-curl https://demo.taskifai.com/api/health
-```
+1. Review [MCP Deployment Guide](05_DigitalOcean_MCP_Deployment.md)
+2. Setup prerequisites (accounts, keys, projects)
+3. Deploy central login
+4. Deploy demo tenant
+5. Test complete flow
+6. Deploy additional tenants as needed
 
 ---
 
-## Security Checklist
-
-- [ ] SSL/TLS enabled for all domains
-- [ ] Firewall configured (only 22, 80, 443 open)
-- [ ] Environment variables secured (not in git)
-- [ ] Rate limiting enabled on auth endpoints
-- [ ] CORS properly configured
-- [ ] Supabase RLS policies active
-- [ ] Regular security updates (`apt update && apt upgrade`)
-- [ ] Log monitoring enabled
-- [ ] Backup strategy implemented
-
----
-
-## Cost Estimation (Monthly)
-
-### Small Setup (1-3 tenants)
-
-| Component | Provider | Cost |
-|-----------|----------|------|
-| Central Login VPS | DigitalOcean | $6 |
-| Tenant VPS x2 | DigitalOcean | $24 |
-| Supabase (3 projects) | Supabase | $75 |
-| Redis Cloud | Upstash | $10 |
-| Domain | Namecheap | $1 |
-| **Total** | | **~$116/mo** |
-
-### Medium Setup (5-10 tenants)
-
-| Component | Provider | Cost |
-|-----------|----------|------|
-| Load Balancer | DigitalOcean | $12 |
-| Tenant VPS x5 | DigitalOcean | $60 |
-| Supabase (6 projects) | Supabase | $150 |
-| Redis Cloud | Upstash | $20 |
-| **Total** | | **~$242/mo** |
-
-### Large Setup (10+ tenants)
-
-Use cloud orchestration (ECS, Cloud Run) with auto-scaling for cost optimization.
-
----
-
-## Next Steps
-
-1. Review [Customer Onboarding Guide](./02_Customer_Onboarding_BIBBI_Example.md)
-2. Read [Vendor Processor Customization Guide](./03_Vendor_Processor_Customization.md)
-3. Check [Deployment Checklist](./04_Deployment_Checklist.md)
+**Ready to deploy?** → Proceed to `05_DigitalOcean_MCP_Deployment.md`

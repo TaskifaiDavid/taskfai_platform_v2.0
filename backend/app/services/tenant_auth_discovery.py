@@ -204,7 +204,8 @@ class TenantAuthDiscoveryService:
             # No tenant_id/subdomain yet - user must select
             tenant_id=None,
             subdomain=None,
-            expires_minutes=5  # Short expiration
+            expires_minutes=5,  # Short expiration
+            add_jti=True  # Enable one-time use tracking
         )
 
         # Build tenant options list

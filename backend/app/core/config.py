@@ -54,8 +54,8 @@ class Settings(BaseSettings):
     # Redis
     redis_url: str = "redis://localhost:6379/0"
 
-    # OpenAI
-    openai_api_key: str
+    # OpenAI (Optional - AI chat disabled if not configured)
+    openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
 
     # SendGrid (Optional - email notifications disabled if not configured)
