@@ -21,20 +21,12 @@ app = FastAPI(
     redoc_url="/api/redoc",
 )
 
-# CORS middleware (first, outermost)
-# Support app.taskifai.com and all subdomains (*.taskifai.com)
+# CORS middleware - consolidated production and development origins
+# Supports both production (*.taskifai.com) and development (localhost)
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"https://([a-z0-9-]+\.)?taskifai\.com",
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Also add localhost origins for development
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.allowed_origins,  # localhost origins for development
+    allow_origins=settings.allowed_origins,  # localhost for development
+    allow_origin_regex=r"https://([a-z0-9-]+\.)?taskifai\.com",  # production domains
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
