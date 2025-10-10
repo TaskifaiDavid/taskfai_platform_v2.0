@@ -10,6 +10,7 @@ import { WidgetType, type WidgetConfig } from '@/types/dashboardConfig'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { AlertCircle } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 // Widget Components
 import { KPIGridWidget } from './widgets/KPIGridWidget'
@@ -86,7 +87,7 @@ export function DynamicDashboard({ className }: DynamicDashboardProps) {
   }
 
   return (
-    <div className="space-y-8 animate-in fade-in-0 slide-in-from-bottom-4 duration-500">
+    <div className={cn("space-y-8 animate-in fade-in-0 slide-in-from-bottom-4 duration-500", className)}>
       <div className="space-y-2">
         <div className="flex items-center gap-3 mb-2">
           <h1 className="text-4xl font-bold tracking-tight">{config.dashboard_name}</h1>

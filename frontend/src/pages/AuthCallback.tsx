@@ -53,9 +53,8 @@ export function AuthCallback() {
         const user = {
           user_id: userInfo.sub,
           email: userInfo.email,
-          role: userInfo.role || 'analyst',
-          full_name: userInfo.full_name || userInfo.email.split('@')[0],
-          created_at: new Date().toISOString()
+          role: userInfo.role || 'user',
+          tenant_id: userInfo.tenant_id
         }
 
         setAuth(user, token)
