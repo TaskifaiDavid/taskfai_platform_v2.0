@@ -146,6 +146,7 @@ class TenantContextManager:
             demo.taskifai.com → "demo"
             taskifai.com → None
             localhost → None
+            taskifai-demo-ak4kq.ondigitalocean.app → "demo"
 
         Args:
             hostname: Request hostname
@@ -164,6 +165,11 @@ class TenantContextManager:
         # Handle localhost
         if "localhost" in hostname or hostname.startswith("127.0.0.1"):
             return "demo"  # Use demo for local development
+
+        # Handle DigitalOcean App Platform URLs (*.ondigitalocean.app)
+        # These are direct backend URLs and should always use demo context
+        if "ondigitalocean.app" in hostname:
+            return "demo"
 
         # Split hostname
         parts = hostname.split('.')
