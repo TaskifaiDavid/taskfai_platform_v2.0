@@ -128,6 +128,7 @@ export interface KPIs {
   total_revenue: number
   total_units: number
   avg_price: number
+  total_uploads?: number
   top_products: Array<{
     product_name: string
     revenue: number

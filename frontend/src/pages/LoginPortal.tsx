@@ -26,6 +26,7 @@ export function LoginPortal() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [tenants, setTenants] = useState<TenantOption[] | null>(null)
+  const [tempToken, setTempToken] = useState<string>('')
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
@@ -48,6 +49,7 @@ export function LoginPortal() {
       // Multiple tenants → store temp token and show selector
       if (isMultiTenantLogin(response)) {
         storeTempToken(response.temp_token)
+        setTempToken(response.temp_token)
         setTenants(response.tenants)
         setLoading(false)
         return
@@ -73,7 +75,7 @@ export function LoginPortal() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background p-4">
         <Card className="w-full max-w-md p-6">
-          <TenantSelector tenants={tenants} email={email} />
+          <TenantSelector tenants={tenants} tempToken={tempToken} email={email} />
         </Card>
       </div>
     )
