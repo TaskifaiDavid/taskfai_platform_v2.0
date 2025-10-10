@@ -18,28 +18,28 @@ security = HTTPBearer()
 
 def get_tenant_context(request: Request) -> TenantContext:
     """
-    Get tenant context from request
+    Get tenant context from request.state (set by TenantContextMiddleware)
 
-    For demo mode: Returns demo tenant
-    For production: Extracts subdomain and loads tenant config
+    This dependency retrieves the tenant context that was already resolved
+    by TenantContextMiddleware and stored in request.state.tenant.
 
     Args:
         request: FastAPI request object
 
     Returns:
-        TenantContext
+        TenantContext from request.state
+
+    Raises:
+        HTTPException: If tenant context not found in request state
     """
-    # Extract subdomain from hostname
-    hostname = request.headers.get("host", "localhost")
-    subdomain = TenantContextManager.extract_subdomain(hostname)
+    # Get tenant context from middleware
+    if not hasattr(request.state, "tenant"):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Tenant context not found in request state. TenantContextMiddleware may not be registered."
+        )
 
-    # For demo mode, always return demo context
-    if subdomain == "demo" or subdomain is None:
-        return TenantContextManager.get_demo_context()
-
-    # Future: Load tenant from registry
-    # For now, return demo
-    return TenantContextManager.get_demo_context()
+    return request.state.tenant
 
 
 def get_supabase_client(
