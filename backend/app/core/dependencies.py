@@ -127,7 +127,7 @@ async def get_current_user(
 
 
 # Alias for backwards compatibility
-async def get_tenant_db_pool(
+def get_tenant_db_pool(
     tenant_context: Annotated[TenantContext, Depends(get_tenant_context)]
 ) -> Client:
     """Alias for get_supabase_client for backwards compatibility"""
