@@ -6,7 +6,7 @@ Main FastAPI Application
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, uploads, chat, dashboards, analytics, admin
+from app.api import auth, tenant_discovery, uploads, chat, dashboards, analytics, admin, dashboard_config
 from app.core.config import settings
 from app.middleware.tenant_context import TenantContextMiddleware
 from app.middleware.auth import AuthMiddleware
@@ -21,20 +21,12 @@ app = FastAPI(
     redoc_url="/api/redoc",
 )
 
-# CORS middleware (first, outermost)
-# Support app.taskifai.com and all subdomains (*.taskifai.com)
+# CORS middleware - consolidated production and development origins
+# Supports both production (*.taskifai.com) and development (localhost)
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"https://([a-z0-9-]+\.)?taskifai\.com",
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Also add localhost origins for development
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.allowed_origins,  # localhost origins for development
+    allow_origins=settings.allowed_origins,  # localhost for development
+    allow_origin_regex=r"https://([a-z0-9-]+\.)?taskifai\.com",  # production domains
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -55,9 +47,11 @@ app.add_middleware(TenantContextMiddleware)
 
 # Include routers
 app.include_router(auth.router, prefix="/api")
+app.include_router(tenant_discovery.router, prefix="/api")
 app.include_router(uploads.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
 app.include_router(dashboards.router, prefix="/api")
+app.include_router(dashboard_config.router, prefix="/api")
 app.include_router(analytics.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 

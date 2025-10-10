@@ -23,6 +23,42 @@ export interface AuthResponse {
   user: User
 }
 
+// Tenant Discovery Types
+export interface TenantOption {
+  subdomain: string
+  company_name: string
+}
+
+export interface LoginAndDiscoverSingleResponse {
+  type: 'single'
+  subdomain: string
+  company_name: string
+  redirect_url: string
+  access_token: string
+}
+
+export interface LoginAndDiscoverMultiResponse {
+  type: 'multi'
+  tenants: TenantOption[]
+  temp_token: string
+}
+
+export type LoginAndDiscoverResponse =
+  | LoginAndDiscoverSingleResponse
+  | LoginAndDiscoverMultiResponse
+
+export interface ExchangeTokenRequest {
+  temp_token: string
+  selected_subdomain: string
+}
+
+export interface ExchangeTokenResponse {
+  access_token: string
+  redirect_url: string
+  subdomain: string
+  company_name: string
+}
+
 // Upload Types
 export interface Upload {
   batch_id: string
@@ -171,3 +207,6 @@ export interface APIError {
   detail: string
   status_code?: number
 }
+
+// Dashboard Configuration Types (Dynamic Dashboards)
+export * from './dashboardConfig'

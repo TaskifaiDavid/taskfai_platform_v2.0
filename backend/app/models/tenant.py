@@ -183,3 +183,17 @@ class LoginAndDiscoverMultiResponse(BaseModel):
     type: str = Field(default="multi", description="Response type")
     tenants: list[TenantOption] = Field(..., description="List of tenant options")
     temp_token: str = Field(..., description="Temporary token for tenant selection")
+
+
+class ExchangeTokenRequest(BaseModel):
+    """Request model for exchanging temporary token for tenant-scoped token"""
+    temp_token: str = Field(..., description="Temporary JWT token from login-and-discover")
+    selected_subdomain: str = Field(..., description="User-selected tenant subdomain")
+
+
+class ExchangeTokenResponse(BaseModel):
+    """Response model for token exchange"""
+    access_token: str = Field(..., description="Tenant-scoped JWT access token")
+    redirect_url: str = Field(..., description="Dashboard redirect URL")
+    subdomain: str = Field(..., description="Tenant subdomain")
+    company_name: str = Field(..., description="Company name")

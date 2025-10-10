@@ -1,6 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import apiClient from '@/lib/api'
-import type { AuthResponse, LoginRequest, RegisterRequest, User } from '@/types'
+import type {
+  AuthResponse,
+  LoginRequest,
+  RegisterRequest,
+  User,
+  LoginAndDiscoverResponse,
+  ExchangeTokenRequest,
+  ExchangeTokenResponse,
+} from '@/types'
 import { useAuthStore } from '@/stores/auth'
 
 export function useLogin() {
@@ -45,5 +53,32 @@ export function useCurrentUser() {
     queryKey: ['currentUser'],
     queryFn: () => apiClient.get<User>('/api/auth/me'),
     retry: false,
+  })
+}
+
+/**
+ * Combined authentication + tenant discovery hook
+ *
+ * Used on central login portal (app.taskifai.com) for Flow B:
+ * - Single tenant: Returns token + redirect URL directly
+ * - Multi tenant: Returns temp token + tenant list for selection
+ */
+export function useLoginAndDiscover() {
+  return useMutation({
+    mutationFn: (credentials: LoginRequest) =>
+      apiClient.post<LoginAndDiscoverResponse>('/api/auth/login-and-discover', credentials),
+  })
+}
+
+/**
+ * Exchange temporary token for tenant-scoped token
+ *
+ * Used when multi-tenant user selects a specific tenant.
+ * Exchanges the temp token for a real JWT with tenant claims.
+ */
+export function useExchangeToken() {
+  return useMutation({
+    mutationFn: (request: ExchangeTokenRequest) =>
+      apiClient.post<ExchangeTokenResponse>('/api/auth/exchange-token', request),
   })
 }
