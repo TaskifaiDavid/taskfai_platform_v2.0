@@ -69,12 +69,9 @@ celery_app.conf.update(
     # ============================================
     # SSL/TLS Configuration for rediss:// protocol
     # ============================================
-    broker_use_ssl={
-        # Start with CERT_NONE for diagnostic purposes
-        # Upstash uses valid Let's Encrypt certificates, so CERT_REQUIRED should work
-        # If connection still fails, this eliminates SSL cert verification as the issue
-        'ssl_cert_reqs': ssl.CERT_NONE,
-    },
+    # NOTE: When using rediss:// URL scheme, SSL is handled automatically by the URL
+    # No need for broker_use_ssl config - it can cause "Invalid argument" errors
+    # The rediss:// protocol tells Redis client to use SSL without additional config
 )
 
 logger.info("✅ Celery broker configuration applied with SSL and retry logic")
