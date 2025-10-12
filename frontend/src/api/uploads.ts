@@ -58,6 +58,8 @@ export function useUploadsList() {
       const response = await apiClient.get<{ success: boolean; batches: BackendUpload[]; count: number }>('/api/uploads/batches')
       return response.batches.map(transformUpload)
     },
+    refetchInterval: 3000,  // Poll every 3 seconds to update upload statuses
+    refetchIntervalInBackground: false,  // Stop polling when tab is inactive
   })
 }
 
@@ -69,6 +71,8 @@ export function useUploadDetails(batchId: string | null) {
       return transformUpload(response.batch)
     },
     enabled: !!batchId,
+    refetchInterval: 3000,  // Poll every 3 seconds to update batch details
+    refetchIntervalInBackground: false,  // Stop polling when tab is inactive
   })
 }
 
