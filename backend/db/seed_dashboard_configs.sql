@@ -3,7 +3,7 @@
 
 -- Default Dashboard Configuration (tenant-wide)
 -- This will be used as fallback when users don't have custom configs
-INSERT INTO dashboard_configs (
+INSERT INTO dynamic_dashboard_configs (
     dashboard_id,
     user_id,
     dashboard_name,
@@ -74,7 +74,7 @@ INSERT INTO dashboard_configs (
 -- Example: BIBBI Custom Dashboard (different layout for specific client)
 -- Uncomment when you have a BIBBI user_id
 /*
-INSERT INTO dashboard_configs (
+INSERT INTO dynamic_dashboard_configs (
     dashboard_id,
     user_id,
     dashboard_name,
@@ -163,5 +163,5 @@ SELECT
     is_active,
     jsonb_array_length(layout) as widget_count,
     jsonb_array_length(kpis) as kpi_count
-FROM dashboard_configs
+FROM dynamic_dashboard_configs
 ORDER BY is_default DESC, display_order ASC;

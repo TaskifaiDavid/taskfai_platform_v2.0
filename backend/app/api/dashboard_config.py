@@ -54,7 +54,7 @@ async def get_default_dashboard_config(
         if not response.data:
             response = supabase.table("dynamic_dashboard_configs") \
                 .select("*") \
-                .is_("user_id", "null") \
+                .is_("user_id", None) \
                 .eq("is_default", True) \
                 .eq("is_active", True) \
                 .maybe_single() \
@@ -116,7 +116,7 @@ async def list_dynamic_dashboard_configs(
             
             tenant_defaults = supabase.table("dynamic_dashboard_configs") \
                 .select("*") \
-                .is_("user_id", "null") \
+                .is_("user_id", None) \
                 .eq("is_active", True) \
                 .order("display_order") \
                 .execute()
