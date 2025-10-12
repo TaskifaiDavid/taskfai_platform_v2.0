@@ -26,11 +26,24 @@ class IntentDetector:
     - TIME_ANALYSIS: Trend analysis over time
     - PRODUCT_ANALYSIS: Product-specific queries
     - RESELLER_ANALYSIS: Reseller/partner analysis
+    - PREDICTION: Sales forecasting and predictions
+    - ADVANCED_ANALYSIS: Trend, seasonality, anomaly detection
     - GENERAL: General queries or unclear intent
     """
 
     # Intent patterns (keywords -> intent type)
     INTENT_PATTERNS = {
+        "PREDICTION": [
+            "predict", "forecast", "projection", "estimate", "future",
+            "what will", "next month", "next quarter", "next year",
+            "expected sales", "anticipated", "predict for", "forecast for"
+        ],
+        "ADVANCED_ANALYSIS": [
+            "trend", "pattern", "seasonality", "seasonal", "anomaly",
+            "unusual", "spike", "drop", "growth rate", "velocity",
+            "acceleration", "compare periods", "period comparison",
+            "analyze trend", "detect pattern"
+        ],
         "ONLINE_SALES": [
             "online", "ecommerce", "e-commerce", "web", "website",
             "utm", "marketing", "campaign", "device", "country"
@@ -44,8 +57,8 @@ class IntentDetector:
             "online vs offline", "channel comparison"
         ],
         "TIME_ANALYSIS": [
-            "trend", "over time", "monthly", "quarterly", "year over year",
-            "growth", "decline", "forecast", "last month", "this year"
+            "over time", "monthly", "quarterly", "year over year",
+            "growth", "decline", "last month", "this year"
         ],
         "PRODUCT_ANALYSIS": [
             "product", "sku", "ean", "category", "top selling",
@@ -64,6 +77,15 @@ class IntentDetector:
             r"in (january|february|march|april|may|june|july|august|september|october|november|december)",
             r"in (202\d)",
             r"(Q[1-4]) (202\d)"
+        ],
+        "prediction_target": [
+            r"(january|february|march|april|may|june|july|august|september|october|november|december)\s+(202\d)",
+            r"(Q[1-4])\s+(202\d)",
+            r"next (month|quarter|year)",
+            r"for (202\d)"
+        ],
+        "analysis_type": [
+            r"(trend|seasonality|anomaly|growth rate|velocity|pattern)"
         ],
         "product_ean": [
             r"\b\d{13}\b"  # 13-digit EAN
@@ -166,10 +188,22 @@ class IntentDetector:
             filters["table"] = "sellout_entries2"
         elif intent_type == "COMPARISON":
             filters["tables"] = ["ecommerce_orders", "sellout_entries2"]
+        elif intent_type in ["PREDICTION", "ADVANCED_ANALYSIS"]:
+            # Prefer online data (more granular), fall back to offline
+            filters["table"] = "ecommerce_orders"
+            filters["fallback_table"] = "sellout_entries2"
 
         # Date filters
         if "date_range" in entities:
             filters["date_filter"] = entities["date_range"]
+
+        # Prediction-specific filters
+        if "prediction_target" in entities:
+            filters["prediction_target"] = entities["prediction_target"]
+
+        # Analysis type filters
+        if "analysis_type" in entities:
+            filters["analysis_type"] = entities["analysis_type"]
 
         # Product filters
         if "product_ean" in entities:
@@ -184,7 +218,7 @@ class IntentDetector:
             filters["metric"] = entities["metric"]
         else:
             # Default metrics by intent
-            if intent_type in ["ONLINE_SALES", "OFFLINE_SALES"]:
+            if intent_type in ["ONLINE_SALES", "OFFLINE_SALES", "PREDICTION", "ADVANCED_ANALYSIS"]:
                 filters["metrics"] = ["sales_eur", "quantity"]
 
         return filters if filters else None
@@ -200,6 +234,19 @@ class IntentDetector:
             List of query hints
         """
         hints = {
+            "PREDICTION": [
+                "Try: 'What's your prediction for October 2025?'",
+                "Try: 'Forecast my sales for next quarter'",
+                "Try: 'What will my revenue be in December?'",
+                "Try: 'Predict sales for the next 3 months'"
+            ],
+            "ADVANCED_ANALYSIS": [
+                "Try: 'Analyze my sales trends'",
+                "Try: 'Detect seasonality patterns in my data'",
+                "Try: 'Show me any unusual spikes or drops'",
+                "Try: 'What's my sales velocity?'",
+                "Try: 'Compare Q1 2024 to Q1 2025'"
+            ],
             "ONLINE_SALES": [
                 "Try: 'Show me online sales for the last month'",
                 "Try: 'What are the top products from our website?'",
