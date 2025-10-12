@@ -50,13 +50,10 @@ celery_app.conf.update(
     # Upstash-Compatible Transport Options
     # ============================================
     broker_transport_options={
-        # Socket keepalive to maintain long-lived connections
-        'socket_keepalive': True,
-        'socket_keepalive_options': {
-            1: 120,  # TCP_KEEPIDLE: 120 seconds before sending keepalive probes
-            2: 3,    # TCP_KEEPCNT: 3 keepalive probes before declaring connection dead
-            3: 30,   # TCP_KEEPINTVL: 30 seconds between keepalive probes
-        },
+        # NOTE: socket_keepalive options REMOVED - incompatible with Upstash
+        # TCP keepalive options (TCP_KEEPIDLE, TCP_KEEPCNT, TCP_KEEPINTVL)
+        # cause Error 22 (EINVAL) in sock.setsockopt() when connecting to Upstash
+        # over public internet. These are Linux-specific options that Upstash rejects.
 
         # Connection pooling and timeouts
         'health_check_interval': 30,       # Health check every 30 seconds
