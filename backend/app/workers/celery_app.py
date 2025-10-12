@@ -75,11 +75,13 @@ celery_app.conf.update(
 
 logger.info("✅ Celery broker configuration applied with SSL and retry logic")
 
-# Task routes
-celery_app.conf.task_routes = {
-    "app.workers.tasks.process_upload": {"queue": "file_processing"},
-    "app.workers.tasks.send_email": {"queue": "notifications"},
-}
+# Task routes - TEMPORARILY DISABLED to use default "celery" queue
+# Worker currently listens to "celery" queue, not "file_processing"
+# TODO: Either configure worker with -Q file_processing,notifications OR keep this disabled
+# celery_app.conf.task_routes = {
+#     "app.workers.tasks.process_upload": {"queue": "file_processing"},
+#     "app.workers.tasks.send_email": {"queue": "notifications"},
+# }
 
 # Import tasks (this registers them with Celery)
 from app.workers import tasks  # noqa
