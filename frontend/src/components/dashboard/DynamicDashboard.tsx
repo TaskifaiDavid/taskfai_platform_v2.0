@@ -5,9 +5,7 @@
  * Implements Option 1: Database-Driven Dashboards.
  */
 
-import { useDashboardConfig } from '@/api/dashboardConfig'
-import { WidgetType, type WidgetConfig } from '@/types/dashboardConfig'
-import { Skeleton } from '@/components/ui/skeleton'
+import { WidgetType, type WidgetConfig, type DashboardConfig } from '@/types/dashboardConfig'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -18,6 +16,7 @@ import { RecentUploadsWidget } from './widgets/RecentUploadsWidget'
 import { TopProductsWidget } from './widgets/TopProductsWidget'
 
 interface DynamicDashboardProps {
+  config: DashboardConfig
   className?: string
 }
 
@@ -59,23 +58,8 @@ function DynamicWidget({ widget }: { widget: WidgetConfig }) {
   }
 }
 
-export function DynamicDashboard({ className }: DynamicDashboardProps) {
-  const { data: config, isLoading, error } = useDashboardConfig()
-
-  if (isLoading) {
-    return (
-      <div className="space-y-6">
-        <Skeleton className="h-12 w-full bg-muted" />
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-          {[...Array(4)].map((_, i) => (
-            <Skeleton key={i} className="h-32 w-full bg-muted" />
-          ))}
-        </div>
-      </div>
-    )
-  }
-
-  if (error || !config) {
+export function DynamicDashboard({ config, className }: DynamicDashboardProps) {
+  if (!config) {
     return (
       <Alert variant="destructive">
         <AlertCircle className="h-4 w-4" />
