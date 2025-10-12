@@ -3,6 +3,7 @@ Application Configuration
 Uses Pydantic v2 Settings Management
 """
 
+import os
 from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -83,8 +84,10 @@ class Settings(BaseSettings):
         return [origin.strip() for origin in self.allowed_origins_str.split(",")]
 
     # Pydantic v2 configuration
+    # Only load .env file if it exists (prevents Docker container .env interference)
+    # In production, environment variables should be set directly, not via .env file
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=".env" if os.path.exists(".env") else None,
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore"
