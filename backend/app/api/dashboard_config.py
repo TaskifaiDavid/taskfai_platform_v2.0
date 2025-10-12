@@ -44,7 +44,7 @@ async def get_default_dashboard_config(
         # First, try to get user-specific default
         response = supabase.table("dynamic_dashboard_configs") \
             .select("*") \
-            .eq("user_id", current_user.user_id) \
+            .eq("user_id", current_user["user_id"]) \
             .eq("is_default", True) \
             .eq("is_active", True) \
             .maybe_single() \
@@ -128,7 +128,7 @@ async def list_dynamic_dashboard_configs(
             # Get both user configs and tenant defaults
             user_configs = supabase.table("dynamic_dashboard_configs") \
                 .select("*") \
-                .eq("user_id", current_user.user_id) \
+                .eq("user_id", current_user["user_id"]) \
                 .eq("is_active", True) \
                 .order("display_order") \
                 .execute()
@@ -145,7 +145,7 @@ async def list_dynamic_dashboard_configs(
             # Get only user configs
             response = supabase.table("dynamic_dashboard_configs") \
                 .select("*") \
-                .eq("user_id", current_user.user_id) \
+                .eq("user_id", current_user["user_id"]) \
                 .eq("is_active", True) \
                 .order("display_order") \
                 .execute()
@@ -213,7 +213,7 @@ async def get_dashboard_config(
         config = response.data[0]
         
         # Security check: user can only access their own configs or tenant defaults
-        if config['user_id'] and config['user_id'] != str(current_user.user_id):
+        if config['user_id'] and config['user_id'] != str(current_user["user_id"]):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You don't have permission to access this dashboard configuration"
@@ -271,13 +271,13 @@ async def create_dashboard_config(
         if config.is_default:
             supabase.table("dynamic_dashboard_configs") \
                 .update({"is_default": False}) \
-                .eq("user_id", current_user.user_id) \
+                .eq("user_id", current_user["user_id"]) \
                 .eq("is_default", True) \
                 .execute()
-        
+
         # Prepare data for insertion
         insert_data = {
-            "user_id": str(current_user.user_id),
+            "user_id": str(current_user["user_id"]),
             "dashboard_name": config.dashboard_name,
             "description": config.description,
             "layout": [widget.model_dump() for widget in config.layout],
@@ -337,18 +337,18 @@ async def update_dashboard_config(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Dashboard configuration not found"
             )
-        
-        if check.data['user_id'] != str(current_user.user_id):
+
+        if check.data['user_id'] != str(current_user["user_id"]):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You don't have permission to update this dashboard configuration"
             )
-        
+
         # If setting as default, unset existing default
         if update.is_default:
             supabase.table("dynamic_dashboard_configs") \
                 .update({"is_default": False}) \
-                .eq("user_id", current_user.user_id) \
+                .eq("user_id", current_user["user_id"]) \
                 .eq("is_default", True) \
                 .neq("dashboard_id", str(dashboard_id)) \
                 .execute()
@@ -428,8 +428,8 @@ async def delete_dashboard_config(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Cannot delete tenant-wide default dashboard"
             )
-        
-        if check.data['user_id'] != str(current_user.user_id):
+
+        if check.data['user_id'] != str(current_user["user_id"]):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You don't have permission to delete this dashboard configuration"
