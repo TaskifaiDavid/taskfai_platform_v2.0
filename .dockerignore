@@ -1,0 +1,65 @@
+# ============================================
+# Docker Ignore for TaskifAI Platform
+# Build context: Project root
+# ============================================
+
+# Environment files (CRITICAL: Don't copy .env to container)
+backend/.env
+backend/.env.*
+frontend/.env
+frontend/.env.*
+.env
+.env.*
+
+# Python cache
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+**/*.so
+
+# Testing
+backend/.pytest_cache/
+backend/.coverage
+backend/htmlcov/
+backend/tests/
+
+# IDEs
+.vscode/
+.idea/
+**/*.swp
+**/*.swo
+**/*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local development
+backend/uploads/
+backend/logs/
+**/*.log
+
+# Documentation
+*.md
+docs/
+claudedocs/
+Project_docs/
+digitalocean-worker-setup.md
+improved_dashboard.md
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Frontend (if building backend only)
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+
+# Docker
+docker-compose.yml
+docker-compose*.yml
+
+# CI/CD
+.github/
