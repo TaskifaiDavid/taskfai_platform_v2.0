@@ -51,7 +51,7 @@ async def get_default_dashboard_config(
             .execute()
 
         # If no user-specific default, get tenant-wide default
-        if not response.data:
+        if not response or not response.data:
             response = supabase.table("dynamic_dashboard_configs") \
                 .select("*") \
                 .is_("user_id", None) \
@@ -59,8 +59,8 @@ async def get_default_dashboard_config(
                 .eq("is_active", True) \
                 .maybe_single() \
                 .execute()
-        
-        if not response.data:
+
+        if not response or not response.data:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="No default dashboard configuration found"
