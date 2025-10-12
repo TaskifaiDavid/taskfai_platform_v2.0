@@ -45,18 +45,11 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
         if request.method == "OPTIONS":
             return await call_next(request)
 
-        # Skip tenant resolution for central login discovery endpoints only
-        # These endpoints are ONLY used at app.taskifai.com for tenant discovery
-        # Regular tenant login at demo.taskifai.com/api/auth/login NEEDS tenant context
+        # Skip tenant resolution for health/root endpoints only
+        # All auth endpoints now require tenant context (tenant-specific login)
         skip_paths = [
             "/health",  # Health check endpoint (App Platform & Docker)
             "/",  # Root endpoint
-            # Tenant discovery endpoints - with /api prefix (local dev)
-            "/api/auth/login-and-discover",
-            "/api/auth/discover-tenant",
-            # Tenant discovery endpoints - without /api prefix (production route rewriting)
-            "/auth/login-and-discover",
-            "/auth/discover-tenant"
         ]
         if request.url.path in skip_paths:
             return await call_next(request)

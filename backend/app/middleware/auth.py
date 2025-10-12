@@ -38,13 +38,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # Auth endpoints - with /api prefix (local dev)
         "/api/auth/login",
         "/api/auth/register",
-        "/api/auth/login-and-discover",  # Central login (app.taskifai.com)
-        "/api/auth/discover-tenant",  # Tenant discovery
         # Auth endpoints - without /api prefix (production route rewriting)
         "/auth/login",
-        "/auth/register",
-        "/auth/login-and-discover",
-        "/auth/discover-tenant"
+        "/auth/register"
     ]
 
     async def dispatch(self, request: Request, call_next) -> Response:

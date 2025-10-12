@@ -128,72 +128,7 @@ class SubdomainCheck(BaseModel):
     reason: Optional[str] = None
 
 
-# Tenant Discovery Models
-# ========================
-
 class TenantCredentials(BaseModel):
     """Database credentials for tenant"""
     anon_key: str = Field(..., description="Supabase anon key")
     service_key: str = Field(..., description="Supabase service key")
-
-
-class TenantDiscoveryRequest(BaseModel):
-    """Request model for tenant discovery"""
-    email: str = Field(..., description="User email address")
-
-
-class TenantOption(BaseModel):
-    """Tenant option for multi-tenant selection"""
-    subdomain: str = Field(..., description="Tenant subdomain")
-    company_name: str = Field(..., description="Company name")
-
-
-class TenantDiscoverySingleResponse(BaseModel):
-    """Response when user belongs to single tenant"""
-    subdomain: str = Field(..., description="Tenant subdomain")
-    company_name: str = Field(..., description="Company name")
-    redirect_url: str = Field(..., description="Login redirect URL")
-
-
-class TenantDiscoveryMultiResponse(BaseModel):
-    """Response when user belongs to multiple tenants"""
-    tenants: list[TenantOption] = Field(..., description="List of tenant options")
-
-
-# Login and Discover Models (Flow B)
-# ===================================
-
-class LoginAndDiscoverRequest(BaseModel):
-    """Request model for combined login + tenant discovery"""
-    email: str = Field(..., description="User email address")
-    password: str = Field(..., description="User password")
-
-
-class LoginAndDiscoverSingleResponse(BaseModel):
-    """Response when user belongs to single tenant"""
-    type: str = Field(default="single", description="Response type")
-    subdomain: str = Field(..., description="Tenant subdomain")
-    company_name: str = Field(..., description="Company name")
-    redirect_url: str = Field(..., description="Dashboard redirect URL")
-    access_token: str = Field(..., description="JWT access token")
-
-
-class LoginAndDiscoverMultiResponse(BaseModel):
-    """Response when user belongs to multiple tenants"""
-    type: str = Field(default="multi", description="Response type")
-    tenants: list[TenantOption] = Field(..., description="List of tenant options")
-    temp_token: str = Field(..., description="Temporary token for tenant selection")
-
-
-class ExchangeTokenRequest(BaseModel):
-    """Request model for exchanging temporary token for tenant-scoped token"""
-    temp_token: str = Field(..., description="Temporary JWT token from login-and-discover")
-    selected_subdomain: str = Field(..., description="User-selected tenant subdomain")
-
-
-class ExchangeTokenResponse(BaseModel):
-    """Response model for token exchange"""
-    access_token: str = Field(..., description="Tenant-scoped JWT access token")
-    redirect_url: str = Field(..., description="Dashboard redirect URL")
-    subdomain: str = Field(..., description="Tenant subdomain")
-    company_name: str = Field(..., description="Company name")

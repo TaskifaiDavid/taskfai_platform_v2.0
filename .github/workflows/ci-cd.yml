@@ -323,7 +323,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     environment:
       name: production
-      url: https://app.taskifai.com
+      url: https://demo.taskifai.com
 
     steps:
       - name: Checkout code
@@ -339,7 +339,7 @@ jobs:
       - name: Run smoke tests
         run: |
           echo "Running production smoke tests..."
-          curl -f https://app.taskifai.com/api/health || exit 1
+          curl -f https://demo.taskifai.com/api/health || exit 1
 
       - name: Notify deployment
         uses: 8398a7/action-slack@v3
@@ -363,7 +363,7 @@ jobs:
         run: |
           echo "Monitoring application health for 5 minutes..."
           for i in {1..10}; do
-            curl -f https://app.taskifai.com/api/health || exit 1
+            curl -f https://demo.taskifai.com/api/health || exit 1
             sleep 30
           done
 

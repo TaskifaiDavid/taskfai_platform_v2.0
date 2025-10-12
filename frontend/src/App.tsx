@@ -7,8 +7,6 @@ import { useAuthStore } from '@/stores/auth'
 
 // Pages
 import { Login } from '@/pages/Login'
-import { LoginPortal } from '@/pages/LoginPortal'
-import { AuthCallback } from '@/pages/AuthCallback'
 import { Dashboard } from '@/pages/Dashboard'
 import { Uploads } from '@/pages/Uploads'
 import { Chat } from '@/pages/Chat'
@@ -24,16 +22,8 @@ function AppRoutes() {
     <Routes>
       {/* Public routes */}
       <Route
-        path="/portal"
-        element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPortal />}
-      />
-      <Route
         path="/login"
         element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />}
-      />
-      <Route
-        path="/auth/callback"
-        element={<AuthCallback />}
       />
 
       {/* Protected routes */}
