@@ -83,9 +83,13 @@ async def upload_file(
         file_storage.cleanup_batch(user_id, batch_id)
         raise HTTPException(status_code=500, detail=f"Failed to create batch record: {str(e)}")
 
-    # Trigger Celery background processing task
+    # Trigger Celery background processing task with file content
+    # Pass file as base64 to worker (separate container, can't access /tmp/uploads)
+    import base64
+    file_content_b64 = base64.b64encode(file_content).decode('utf-8')
+
     from app.workers.tasks import process_upload
-    process_upload.delay(batch_id, user_id)
+    process_upload.delay(batch_id, user_id, file_content_b64, file.filename)
 
     return {
         "success": True,

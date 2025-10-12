@@ -13,17 +13,22 @@ from app.db import get_supabase
 
 
 @celery_app.task(bind=True, name="app.workers.tasks.process_upload")
-def process_upload(self, batch_id: str, user_id: str) -> Dict[str, Any]:
+def process_upload(self, batch_id: str, user_id: str, file_content_b64: str, filename: str) -> Dict[str, Any]:
     """
     Process uploaded file in the background
 
     Args:
         batch_id: Upload batch identifier
         user_id: User identifier
+        file_content_b64: Base64-encoded file content
+        filename: Original filename
 
     Returns:
         Processing result dictionary
     """
+    import base64
+    import tempfile
+
     supabase = get_supabase()
 
     try:
@@ -41,9 +46,13 @@ def process_upload(self, batch_id: str, user_id: str) -> Dict[str, Any]:
 
         batch = batch_result.data[0]
 
-        # Reconstruct file path from batch info
-        filename = batch["original_filename"]
-        file_path = f"/tmp/uploads/{user_id}/{batch_id}/{filename}"
+        # Decode file content and save to temporary file
+        file_content = base64.b64decode(file_content_b64)
+
+        # Create temporary file for processing
+        with tempfile.NamedTemporaryFile(mode='wb', suffix=f"_{filename}", delete=False) as tmp_file:
+            tmp_file.write(file_content)
+            file_path = tmp_file.name
 
         # Vendor detection
         from app.services.vendors.detector import vendor_detector
@@ -121,7 +130,9 @@ def process_upload(self, batch_id: str, user_id: str) -> Dict[str, Any]:
         }).eq("upload_batch_id", batch_id).execute()
 
         # Cleanup temporary files
-        file_storage.cleanup_batch(user_id, batch_id)
+        import os
+        if os.path.exists(file_path):
+            os.remove(file_path)
 
         # Send success email notification
         send_email.delay(user_id, batch_id, "success")
@@ -135,6 +146,14 @@ def process_upload(self, batch_id: str, user_id: str) -> Dict[str, Any]:
     except Exception as e:
         error_message = str(e)
         error_trace = traceback.format_exc()
+
+        # Cleanup temporary file if it exists
+        import os
+        try:
+            if 'file_path' in locals() and os.path.exists(file_path):
+                os.remove(file_path)
+        except Exception:
+            pass  # Ignore cleanup errors
 
         # Update batch with error
         supabase.table("upload_batches").update({
