@@ -66,17 +66,36 @@ async def get_default_dashboard_config(
                 detail="No default dashboard configuration found"
             )
         
-        # Parse JSON fields
+        # Parse JSON fields and convert to proper types
         config = response.data
-        config['layout'] = json.loads(config['layout']) if isinstance(config['layout'], str) else config['layout']
-        config['kpis'] = json.loads(config['kpis']) if isinstance(config['kpis'], str) else config['kpis']
-        config['filters'] = json.loads(config['filters']) if isinstance(config['filters'], str) else config['filters']
-        
-        return DashboardConfigResponse(**config)
+
+        # Parse JSON if stored as string, Supabase JSONB usually returns as dict/list already
+        layout_data = json.loads(config['layout']) if isinstance(config['layout'], str) else config['layout']
+        kpis_data = json.loads(config['kpis']) if isinstance(config['kpis'], str) else config['kpis']
+        filters_data = json.loads(config['filters']) if isinstance(config['filters'], str) else config['filters']
+
+        # Build response with Pydantic parsing (let Pydantic handle type conversion)
+        return DashboardConfigResponse(
+            dashboard_id=config['dashboard_id'],
+            user_id=config['user_id'],
+            dashboard_name=config['dashboard_name'],
+            description=config.get('description'),
+            layout=layout_data,  # Pydantic will convert list of dicts to List[WidgetConfig]
+            kpis=kpis_data,  # Pydantic will convert list of strings to List[KPIType]
+            filters=filters_data,  # Pydantic will convert dict to DashboardFilters
+            is_default=config['is_default'],
+            is_active=config['is_active'],
+            display_order=config['display_order'],
+            created_at=config['created_at'],
+            updated_at=config['updated_at']
+        )
     
     except HTTPException:
         raise
     except Exception as e:
+        import traceback
+        error_details = f"Failed to fetch default dashboard config: {str(e)}\n{traceback.format_exc()}"
+        print(f"[ERROR] {error_details}")  # Log to console for debugging
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch default dashboard config: {str(e)}"
@@ -200,12 +219,26 @@ async def get_dashboard_config(
                 detail="You don't have permission to access this dashboard configuration"
             )
         
-        # Parse JSON fields
-        config['layout'] = json.loads(config['layout']) if isinstance(config['layout'], str) else config['layout']
-        config['kpis'] = json.loads(config['kpis']) if isinstance(config['kpis'], str) else config['kpis']
-        config['filters'] = json.loads(config['filters']) if isinstance(config['filters'], str) else config['filters']
-        
-        return DashboardConfigResponse(**config)
+        # Parse JSON fields and convert to proper types
+        layout_data = json.loads(config['layout']) if isinstance(config['layout'], str) else config['layout']
+        kpis_data = json.loads(config['kpis']) if isinstance(config['kpis'], str) else config['kpis']
+        filters_data = json.loads(config['filters']) if isinstance(config['filters'], str) else config['filters']
+
+        # Build response with explicit field mapping
+        return DashboardConfigResponse(
+            dashboard_id=config['dashboard_id'],
+            user_id=config['user_id'],
+            dashboard_name=config['dashboard_name'],
+            description=config.get('description'),
+            layout=layout_data,
+            kpis=kpis_data,
+            filters=filters_data,
+            is_default=config['is_default'],
+            is_active=config['is_active'],
+            display_order=config['display_order'],
+            created_at=config['created_at'],
+            updated_at=config['updated_at']
+        )
     
     except HTTPException:
         raise
