@@ -1,0 +1,414 @@
+openapi: 3.0.3
+info:
+  title: Dashboard Configuration API
+  description: Dynamic dashboard configuration management for TaskifAI
+  version: 1.0.0
+servers:
+  - url: https://api.taskifai.com
+    description: Production API
+  - url: http://localhost:8000
+    description: Development API
+
+paths:
+  /api/dashboard-configs/default:
+    get:
+      summary: Get default dashboard configuration
+      description: Returns the default dashboard for the authenticated user (user-specific or tenant-wide)
+      operationId: getDefaultDashboardConfig
+      tags:
+        - dashboard-configs
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Default dashboard configuration retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardConfig'
+        '404':
+          description: No default dashboard configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/dashboard-configs:
+    get:
+      summary: List all dashboard configurations
+      description: Returns all dashboard configurations accessible to the authenticated user
+      operationId: listDashboardConfigs
+      tags:
+        - dashboard-configs
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: is_active
+          in: query
+          description: Filter by active status
+          schema:
+            type: boolean
+        - name: is_default
+          in: query
+          description: Filter by default status
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: List of dashboard configurations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DashboardConfig'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+    post:
+      summary: Create new dashboard configuration
+      description: Creates a new dashboard configuration for the authenticated user
+      operationId: createDashboardConfig
+      tags:
+        - dashboard-configs
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DashboardConfigCreate'
+      responses:
+        '201':
+          description: Dashboard configuration created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardConfig'
+        '400':
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '409':
+          description: Conflict - default dashboard already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/dashboard-configs/{id}:
+    get:
+      summary: Get specific dashboard configuration
+      description: Returns a specific dashboard configuration by ID
+      operationId: getDashboardConfig
+      tags:
+        - dashboard-configs
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Dashboard configuration ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Dashboard configuration retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardConfig'
+        '404':
+          description: Dashboard configuration not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+    put:
+      summary: Update dashboard configuration
+      description: Updates an existing dashboard configuration
+      operationId: updateDashboardConfig
+      tags:
+        - dashboard-configs
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Dashboard configuration ID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DashboardConfigUpdate'
+      responses:
+        '200':
+          description: Dashboard configuration updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardConfig'
+        '400':
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Dashboard configuration not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+    delete:
+      summary: Delete dashboard configuration
+      description: Deletes a dashboard configuration
+      operationId: deleteDashboardConfig
+      tags:
+        - dashboard-configs
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Dashboard configuration ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Dashboard configuration deleted successfully
+        '404':
+          description: Dashboard configuration not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    DashboardConfig:
+      type: object
+      required:
+        - dashboard_id
+        - dashboard_name
+        - layout
+        - kpis
+        - filters
+        - is_default
+        - is_active
+        - display_order
+        - created_at
+        - updated_at
+      properties:
+        dashboard_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: User ID (null for tenant-wide default)
+        dashboard_name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+          nullable: true
+        layout:
+          type: array
+          items:
+            $ref: '#/components/schemas/WidgetConfig'
+        kpis:
+          type: array
+          items:
+            type: string
+        filters:
+          type: object
+          additionalProperties: true
+        is_default:
+          type: boolean
+        is_active:
+          type: boolean
+        display_order:
+          type: integer
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    DashboardConfigCreate:
+      type: object
+      required:
+        - dashboard_name
+        - layout
+      properties:
+        dashboard_name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+        layout:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/WidgetConfig'
+        kpis:
+          type: array
+          items:
+            type: string
+          default: []
+        filters:
+          type: object
+          additionalProperties: true
+          default: {}
+        is_default:
+          type: boolean
+          default: false
+        is_active:
+          type: boolean
+          default: true
+        display_order:
+          type: integer
+          minimum: 0
+          default: 0
+
+    DashboardConfigUpdate:
+      type: object
+      properties:
+        dashboard_name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+        layout:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/WidgetConfig'
+        kpis:
+          type: array
+          items:
+            type: string
+        filters:
+          type: object
+          additionalProperties: true
+        is_default:
+          type: boolean
+        is_active:
+          type: boolean
+        display_order:
+          type: integer
+          minimum: 0
+
+    WidgetConfig:
+      type: object
+      required:
+        - id
+        - type
+        - position
+        - props
+      properties:
+        id:
+          type: string
+          minLength: 1
+        type:
+          type: string
+          enum: [kpi_grid, recent_uploads, top_products, revenue_chart, category_revenue, reseller_performance]
+        position:
+          $ref: '#/components/schemas/WidgetPosition'
+        props:
+          type: object
+          additionalProperties: true
+
+    WidgetPosition:
+      type: object
+      required:
+        - row
+        - col
+        - width
+        - height
+      properties:
+        row:
+          type: integer
+          minimum: 0
+        col:
+          type: integer
+          minimum: 0
+          maximum: 11
+        width:
+          type: integer
+          minimum: 1
+          maximum: 12
+        height:
+          type: integer
+          minimum: 1
+
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+
+  responses:
+    UnauthorizedError:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ForbiddenError:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
