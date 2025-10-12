@@ -68,9 +68,11 @@ celery_app.conf.update(
         # ============================================
         # SSL/TLS Configuration for rediss:// protocol
         # ============================================
-        # Must be provided in broker_transport_options for Redis transport
-        # Not in broker_use_ssl (that causes "Invalid argument")
-        'ssl_cert_reqs': ssl.CERT_NONE,    # Disable SSL certificate verification for now
+        # SSL options must be nested under 'ssl' key for Kombu's Redis transport
+        # Parameter is 'cert_reqs' (not 'ssl_cert_reqs') when nested
+        'ssl': {
+            'cert_reqs': ssl.CERT_NONE,    # Disable SSL certificate verification
+        },
     },
 )
 
