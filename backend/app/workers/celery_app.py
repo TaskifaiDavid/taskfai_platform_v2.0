@@ -64,14 +64,14 @@ celery_app.conf.update(
         'max_connections': 10,             # Conservative limit for free tier
         'socket_timeout': 30,              # Socket operation timeout
         'socket_connect_timeout': 30,      # Connection establishment timeout
-    },
 
-    # ============================================
-    # SSL/TLS Configuration for rediss:// protocol
-    # ============================================
-    # NOTE: When using rediss:// URL scheme, SSL is handled automatically by the URL
-    # No need for broker_use_ssl config - it can cause "Invalid argument" errors
-    # The rediss:// protocol tells Redis client to use SSL without additional config
+        # ============================================
+        # SSL/TLS Configuration for rediss:// protocol
+        # ============================================
+        # Must be provided in broker_transport_options for Redis transport
+        # Not in broker_use_ssl (that causes "Invalid argument")
+        'ssl_cert_reqs': ssl.CERT_NONE,    # Disable SSL certificate verification for now
+    },
 )
 
 logger.info("✅ Celery broker configuration applied with SSL and retry logic")
