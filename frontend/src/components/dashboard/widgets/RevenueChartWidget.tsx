@@ -20,7 +20,6 @@ interface SalesSummary {
 
 export function RevenueChartWidget({ config }: RevenueChartWidgetProps) {
   const navigate = useNavigate()
-  const chartType = config.props.chartType || 'bar'
   const groupBy = config.props.groupBy || 'month'
 
   const { data: salesSummary, isLoading } = useQuery({
