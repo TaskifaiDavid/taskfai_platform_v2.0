@@ -31,42 +31,37 @@ export const mfaApi = {
    * Enroll in 2FA - returns QR code and backup codes
    */
   async enrollMFA(password: string): Promise<MFAEnrollResponse> {
-    const { data } = await apiClient.post('/auth/mfa/enroll', { password })
-    return data
+    return await apiClient.post<MFAEnrollResponse>('/auth/mfa/enroll', { password })
   },
 
   /**
    * Verify TOTP code to complete enrollment
    */
   async verifyEnrollment(code: string): Promise<{ message: string }> {
-    const { data } = await apiClient.post('/auth/mfa/verify-enrollment', { code })
-    return data
+    return await apiClient.post<{ message: string }>('/auth/mfa/verify-enrollment', { code })
   },
 
   /**
    * Disable 2FA (requires password + current TOTP code)
    */
   async disableMFA(password: string, code: string): Promise<{ message: string }> {
-    const { data } = await apiClient.post('/auth/mfa/disable', { password, code })
-    return data
+    return await apiClient.post<{ message: string }>('/auth/mfa/disable', { password, code })
   },
 
   /**
    * Get current MFA status
    */
   async getStatus(): Promise<MFAStatusResponse> {
-    const { data } = await apiClient.get('/auth/mfa/status')
-    return data
+    return await apiClient.get<MFAStatusResponse>('/auth/mfa/status')
   },
 
   /**
    * Complete MFA-protected login with TOTP code
    */
   async verifyLoginMFA(tempToken: string, mfaCode: string): Promise<MFALoginResponse> {
-    const { data } = await apiClient.post('/auth/login/mfa-verify', {
+    return await apiClient.post<MFALoginResponse>('/auth/login/mfa-verify', {
       temp_token: tempToken,
       mfa_code: mfaCode
     })
-    return data
   }
 }

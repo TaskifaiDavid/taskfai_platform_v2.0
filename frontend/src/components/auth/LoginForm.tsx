@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useUIStore } from '@/stores/ui'
 import { Loader2, Shield } from 'lucide-react'
-import { useAuthStore } from '@/stores/authStore'
+import { useAuthStore } from '@/stores/auth'
 import { useNavigate } from 'react-router-dom'
 
 interface LoginFormProps {
