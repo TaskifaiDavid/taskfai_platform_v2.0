@@ -6,7 +6,7 @@ import { PieChart as PieChartIcon, TrendingUp } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useNavigate } from 'react-router-dom'
 import type { WidgetConfig } from '@/types/dashboardConfig'
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts'
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
 
 interface CategoryRevenueWidgetProps {
   config: WidgetConfig
@@ -61,7 +61,7 @@ export function CategoryRevenueWidget({ config }: CategoryRevenueWidgetProps) {
 
   // Transform data for pie chart
   const chartData = categorySummary?.map(item => ({
-    name: item.category || item.period || 'Unknown',
+    name: item.category || (item as any).period || 'Unknown',
     value: item.revenue
   })).slice(0, 8) || []  // Limit to top 8 categories for clarity
 
@@ -116,9 +116,9 @@ export function CategoryRevenueWidget({ config }: CategoryRevenueWidgetProps) {
                   fill="#8884d8"
                   paddingAngle={2}
                   dataKey="value"
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  label={({ name, percent }: { name: string; percent: number }) => `${name} ${(percent * 100).toFixed(0)}%`}
                 >
-                  {chartData.map((entry, index) => (
+                  {chartData.map((_entry, index) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
