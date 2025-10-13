@@ -3,9 +3,10 @@ Pytest Configuration and Shared Fixtures
 """
 
 import pytest
+import pytest_asyncio
 from typing import Generator, AsyncGenerator
 from fastapi.testclient import TestClient
-from httpx import AsyncClient
+from httpx import AsyncClient, ASGITransport
 import asyncpg
 
 from app.main import app
@@ -31,10 +32,11 @@ def client(test_app) -> Generator[TestClient, None, None]:
         yield test_client
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def async_client(test_app) -> AsyncGenerator[AsyncClient, None]:
     """Async test client for FastAPI"""
-    async with AsyncClient(app=test_app, base_url="http://test") as ac:
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
 
 

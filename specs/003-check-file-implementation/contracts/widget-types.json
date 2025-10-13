@@ -1,0 +1,148 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Widget Type Registry",
+  "description": "Defines all available widget types and their configuration schemas",
+  "definitions": {
+    "kpi_grid": {
+      "type": "object",
+      "description": "Grid of KPI metric cards",
+      "properties": {
+        "kpis": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["total_revenue", "total_units", "avg_price", "total_uploads", "reseller_count", "category_mix"]
+          },
+          "minItems": 1,
+          "maxItems": 8
+        },
+        "showTrends": {
+          "type": "boolean",
+          "default": true
+        },
+        "period": {
+          "type": "string",
+          "enum": ["last_7_days", "last_30_days", "last_90_days", "this_month", "last_month"],
+          "default": "last_30_days"
+        }
+      },
+      "required": ["kpis"]
+    },
+    "recent_uploads": {
+      "type": "object",
+      "description": "List of recent file uploads",
+      "properties": {
+        "title": {
+          "type": "string",
+          "default": "Recent Uploads"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 5
+        },
+        "showVendor": {
+          "type": "boolean",
+          "default": true
+        },
+        "showStatus": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "top_products": {
+      "type": "object",
+      "description": "Top-performing products by revenue or units",
+      "properties": {
+        "title": {
+          "type": "string",
+          "default": "Top Products"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "default": 10
+        },
+        "sortBy": {
+          "type": "string",
+          "enum": ["revenue", "units"],
+          "default": "revenue"
+        },
+        "period": {
+          "type": "string",
+          "enum": ["last_7_days", "last_30_days", "last_90_days"],
+          "default": "last_30_days"
+        }
+      }
+    },
+    "revenue_chart": {
+      "type": "object",
+      "description": "Time-series revenue trend chart",
+      "properties": {
+        "title": {
+          "type": "string",
+          "default": "Revenue Trend"
+        },
+        "period": {
+          "type": "string",
+          "enum": ["last_30_days", "last_90_days", "last_12_months"],
+          "default": "last_90_days"
+        },
+        "chartType": {
+          "type": "string",
+          "enum": ["line", "bar", "area"],
+          "default": "line"
+        }
+      }
+    },
+    "category_revenue": {
+      "type": "object",
+      "description": "Revenue distribution by product category",
+      "properties": {
+        "title": {
+          "type": "string",
+          "default": "Category Revenue Mix"
+        },
+        "showPercentages": {
+          "type": "boolean",
+          "default": true
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 3,
+          "maximum": 15,
+          "default": 10
+        }
+      }
+    },
+    "reseller_performance": {
+      "type": "object",
+      "description": "Reseller performance metrics (B2B only)",
+      "properties": {
+        "title": {
+          "type": "string",
+          "default": "Top Resellers"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 50,
+          "default": 10
+        },
+        "sortBy": {
+          "type": "string",
+          "enum": ["revenue", "units", "orders"],
+          "default": "revenue"
+        },
+        "period": {
+          "type": "string",
+          "enum": ["last_30_days", "last_90_days", "this_quarter"],
+          "default": "last_90_days"
+        }
+      }
+    }
+  }
+}
