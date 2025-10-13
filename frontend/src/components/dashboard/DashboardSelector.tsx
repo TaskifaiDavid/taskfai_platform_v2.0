@@ -13,9 +13,9 @@
 import { useState, useEffect } from 'react'
 import { Select, SelectOption } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Plus, LayoutDashboard, Info } from 'lucide-react'
+import { Plus, LayoutDashboard } from 'lucide-react'
 import { useDashboardConfigList } from '@/api/dashboardConfig'
+import { CreateDashboardDialog } from './CreateDashboardDialog'
 import { cn } from '@/lib/utils'
 
 const DASHBOARD_STORAGE_KEY = 'taskifai_selected_dashboard_id'
@@ -33,6 +33,7 @@ export function DashboardSelector({
 }: DashboardSelectorProps) {
   const { data: response, isLoading } = useDashboardConfigList(true)
   const [selectedId, setSelectedId] = useState<string | undefined>(selectedDashboardId)
+  const [showCreateDialog, setShowCreateDialog] = useState(false)
 
   // Sync with parent prop
   useEffect(() => {
@@ -80,7 +81,6 @@ export function DashboardSelector({
   }
 
   const dashboards = response.dashboards || []
-  const selectedDashboard = dashboards.find(d => d.dashboard_id === selectedId)
 
   // Convert dashboards to select options
   const options: SelectOption[] = dashboards
@@ -101,71 +101,42 @@ export function DashboardSelector({
     <div className={cn("flex flex-col gap-3", className)}>
       {/* Dashboard Selector Bar */}
       <div className="flex items-center gap-3 flex-wrap">
-        <div className="flex items-center gap-2 flex-1 min-w-[240px]">
+        <div className="flex items-center gap-2 max-w-[200px]">
           <LayoutDashboard className="h-5 w-5 text-muted-foreground" />
           <Select
             options={options}
             value={selectedId}
             onValueChange={handleChange}
             placeholder="Select a dashboard..."
-            className="flex-1"
+            className="w-full"
           />
         </div>
 
         <Button
           variant="outline"
           size="sm"
-          disabled
+          onClick={() => setShowCreateDialog(true)}
           className="whitespace-nowrap"
-          title="Coming soon: Create custom dashboards"
         >
           <Plus className="h-4 w-4" />
           New Dashboard
         </Button>
       </div>
 
-      {/* Dashboard Info Card */}
-      {selectedDashboard && (
-        <div className="flex items-start gap-3 p-4 rounded-lg border border-border bg-muted/30">
-          <Info className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-          <div className="flex-1 space-y-2">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="text-sm font-semibold">{selectedDashboard.dashboard_name}</h3>
-              {selectedDashboard.is_default && (
-                <Badge variant="secondary" className="text-xs">
-                  Default
-                </Badge>
-              )}
-              <Badge variant="outline" className="text-xs">
-                {selectedDashboard.widget_count} {selectedDashboard.widget_count === 1 ? 'widget' : 'widgets'}
-              </Badge>
-              <Badge variant="outline" className="text-xs">
-                {selectedDashboard.kpi_count} {selectedDashboard.kpi_count === 1 ? 'KPI' : 'KPIs'}
-              </Badge>
-            </div>
-            {selectedDashboard.description && (
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                {selectedDashboard.description}
-              </p>
-            )}
-            <p className="text-xs text-muted-foreground">
-              Last updated: {new Date(selectedDashboard.updated_at).toLocaleDateString('en-US', {
-                year: 'numeric',
-                month: 'short',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-              })}
-            </p>
-          </div>
-        </div>
-      )}
-
       {/* Dashboard Count */}
       <p className="text-xs text-muted-foreground">
         {dashboards.length} {dashboards.length === 1 ? 'dashboard' : 'dashboards'} available
         {response.has_default && ' (including default)'}
       </p>
+
+      {/* Create Dashboard Dialog */}
+      <CreateDashboardDialog
+        open={showCreateDialog}
+        onOpenChange={setShowCreateDialog}
+        onSuccess={(newDashboardId) => {
+          handleChange(newDashboardId)
+        }}
+      />
     </div>
   )
 }
