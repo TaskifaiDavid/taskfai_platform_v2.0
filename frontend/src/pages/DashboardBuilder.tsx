@@ -136,11 +136,15 @@ export function DashboardBuilder() {
       })
 
       // Build dashboard configuration
+      // Convert TypeScript enums to string values for backend Pydantic validation
       const dashboardConfig = {
         dashboard_name: dashboardName,
         description: description || undefined,
-        layout: widgets,
-        kpis: [...new Set(kpis)], // Remove duplicates
+        layout: widgets.map(widget => ({
+          ...widget,
+          type: widget.type as string,  // Ensure enum value is string
+        })),
+        kpis: [...new Set(kpis.map(kpi => kpi as string))], // Convert enums to strings and remove duplicates
         filters: {
           date_range: 'last_30_days',
           vendor: 'all'
@@ -150,7 +154,7 @@ export function DashboardBuilder() {
         display_order: 0
       }
 
-      await createDashboard.mutateAsync(dashboardConfig)
+      await createDashboard.mutateAsync(dashboardConfig as any)
 
       setSaveSuccess(true)
 
