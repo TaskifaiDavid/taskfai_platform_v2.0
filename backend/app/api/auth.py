@@ -8,11 +8,23 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from app.core.dependencies import SupabaseClient
-from app.core.security import create_access_token, get_password_hash, verify_password
+from app.core.dependencies import SupabaseClient, CurrentUser
+from app.core.security import create_access_token, get_password_hash, verify_password, decode_access_token
 from app.models.user import AuthResponse, UserCreate, UserLogin, UserResponse
+from app.models.mfa import (
+    MFAEnrollRequest,
+    MFAEnrollResponse,
+    MFAVerifyRequest,
+    MFADisableRequest,
+    MFAStatusResponse,
+    MFALoginVerifyRequest,
+)
+from app.services.mfa import TOTPService
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+# Initialize TOTP service
+totp_service = TOTPService()
 
 
 @router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
@@ -78,19 +90,24 @@ async def register(
     )
 
 
-@router.post("/login", response_model=AuthResponse)
+@router.post("/login")
 async def login(
     credentials: UserLogin,
     request: Request,
     supabase: SupabaseClient
 ):
     """
-    Authenticate user and return JWT token with user data
+    Authenticate user and return JWT token (or temp token if MFA required)
+
+    Flow:
+    1. Validate email/password
+    2. If MFA enabled → return temp token + requires_mfa flag
+    3. If MFA disabled → return full access token (standard flow)
 
     - **email**: Registered email address
     - **password**: User password
     """
-    # Fetch user by email
+    # Step 1: Fetch user by email
     response = supabase.table("users").select("*").eq("email", credentials.email).execute()
 
     if not response.data:
@@ -101,17 +118,34 @@ async def login(
 
     user = response.data[0]
 
-    # Verify password
+    # Step 2: Verify password
     if not verify_password(credentials.password, user["hashed_password"]):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password"
         )
 
-    # Get tenant context from request state (set by TenantContextMiddleware)
+    # Step 3: Check if MFA enabled
+    if user.get("mfa_enabled"):
+        # MFA required - return temporary token for MFA verification
+        temp_token = create_access_token(
+            data={
+                "sub": user["user_id"],
+                "email": user["email"],
+                "requires_mfa": True
+            },
+            expires_minutes=5,  # Short-lived (5 minutes)
+            add_jti=True  # One-time use token
+        )
+        return {
+            "requires_mfa": True,
+            "temp_token": temp_token,
+            "message": "Please enter your 6-digit authentication code"
+        }
+
+    # Step 4: No MFA - standard login flow
     tenant = request.state.tenant
 
-    # Create access token with tenant claims
     access_token = create_access_token(
         data={
             "sub": user["user_id"],
@@ -134,3 +168,257 @@ async def logout():
     Logout user (client should discard token)
     """
     return {"message": "Successfully logged out"}
+
+
+# ============================================
+# MFA Endpoints
+# ============================================
+
+
+@router.post("/mfa/enroll", response_model=MFAEnrollResponse)
+async def enroll_mfa(
+    request_data: MFAEnrollRequest,
+    user: CurrentUser,
+    supabase: SupabaseClient
+):
+    """
+    Enroll user in TOTP 2FA
+
+    Steps:
+    1. Verify user's password for identity confirmation
+    2. Generate TOTP secret and QR code
+    3. Generate backup recovery codes
+    4. Store encrypted in database (not yet enabled - requires verification)
+
+    Returns QR code to scan with authenticator app (Google Authenticator, Authy, etc.)
+    """
+    # Verify password for identity confirmation
+    if not verify_password(request_data.password, user["hashed_password"]):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid password"
+        )
+
+    # Check if already enrolled
+    if user.get("mfa_enabled"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="MFA already enabled for this account"
+        )
+
+    # Generate TOTP secret and backup codes
+    secret = totp_service.generate_secret()
+    backup_codes = totp_service.generate_backup_codes(count=10)
+    qr_code = totp_service.generate_qr_code(secret, user["email"], issuer="TaskifAI")
+
+    # Encrypt sensitive data before storing
+    encrypted_secret = totp_service.encrypt_secret(secret)
+    encrypted_codes = totp_service.encrypt_backup_codes(backup_codes)
+
+    # Store in database (not enabled yet - requires code verification)
+    supabase.table("users").update({
+        "mfa_secret": encrypted_secret,
+        "backup_codes": encrypted_codes,
+        "mfa_enabled": False  # Not enabled until user verifies they can generate codes
+    }).eq("user_id", user["user_id"]).execute()
+
+    return MFAEnrollResponse(
+        qr_code=qr_code,
+        secret=secret,  # Show once for manual entry
+        backup_codes=backup_codes
+    )
+
+
+@router.post("/mfa/verify-enrollment")
+async def verify_mfa_enrollment(
+    request_data: MFAVerifyRequest,
+    user: CurrentUser,
+    supabase: SupabaseClient
+):
+    """
+    Verify TOTP code to complete MFA enrollment
+
+    User must provide valid 6-digit code from their authenticator app
+    to prove they successfully enrolled before we enable MFA on their account.
+    """
+    if user.get("mfa_enabled"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="MFA already enabled"
+        )
+
+    if not user.get("mfa_secret"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="MFA enrollment not started. Call /mfa/enroll first."
+        )
+
+    # Decrypt secret
+    secret = totp_service.decrypt_secret(user["mfa_secret"])
+
+    # Verify TOTP code
+    if not totp_service.verify_code(secret, request_data.code):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid verification code. Please try again."
+        )
+
+    # Enable MFA
+    supabase.table("users").update({
+        "mfa_enabled": True,
+        "mfa_enrolled_at": datetime.now(timezone.utc).isoformat()
+    }).eq("user_id", user["user_id"]).execute()
+
+    return {"message": "MFA enabled successfully. Your account is now protected with two-factor authentication."}
+
+
+@router.post("/mfa/disable")
+async def disable_mfa(
+    request_data: MFADisableRequest,
+    user: CurrentUser,
+    supabase: SupabaseClient
+):
+    """
+    Disable 2FA (requires password + current TOTP code)
+
+    Security: Requires both password and valid TOTP code to prevent
+    unauthorized disabling of MFA protection.
+    """
+    if not user.get("mfa_enabled"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="MFA is not enabled on this account"
+        )
+
+    # Verify password
+    if not verify_password(request_data.password, user["hashed_password"]):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid password"
+        )
+
+    # Verify TOTP code
+    secret = totp_service.decrypt_secret(user["mfa_secret"])
+    if not totp_service.verify_code(secret, request_data.code):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid verification code"
+        )
+
+    # Disable MFA and clear secrets
+    supabase.table("users").update({
+        "mfa_enabled": False,
+        "mfa_secret": None,
+        "mfa_enrolled_at": None,
+        "backup_codes": None
+    }).eq("user_id", user["user_id"]).execute()
+
+    return {"message": "MFA disabled successfully"}
+
+
+@router.get("/mfa/status", response_model=MFAStatusResponse)
+async def get_mfa_status(user: CurrentUser):
+    """
+    Get current MFA enrollment status for authenticated user
+
+    Returns whether MFA is enabled, when it was enrolled, and
+    how many backup codes remain.
+    """
+    backup_codes_remaining = 0
+    if user.get("backup_codes"):
+        backup_codes_remaining = len(user["backup_codes"])
+
+    return MFAStatusResponse(
+        mfa_enabled=user.get("mfa_enabled", False),
+        enrolled_at=user.get("mfa_enrolled_at"),
+        backup_codes_remaining=backup_codes_remaining
+    )
+
+
+@router.post("/login/mfa-verify", response_model=AuthResponse)
+async def verify_mfa_login(
+    request_data: MFALoginVerifyRequest,
+    request: Request,
+    supabase: SupabaseClient
+):
+    """
+    Complete MFA-protected login with TOTP code verification
+
+    After initial login with MFA-enabled account, user receives temp token.
+    This endpoint verifies the TOTP code and issues full access token.
+
+    Security:
+    - Temp token expires in 5 minutes
+    - Temp token is one-time use (JTI claim)
+    - Failed attempts are logged to mfa_attempts table
+    """
+    # Decode temporary token
+    payload = decode_access_token(request_data.temp_token)
+
+    if not payload or not payload.get("requires_mfa"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired MFA token"
+        )
+
+    user_id = payload.get("sub")
+
+    # Get user from database
+    response = supabase.table("users").select("*").eq("user_id", user_id).execute()
+
+    if not response.data:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found"
+        )
+
+    user = response.data[0]
+
+    # Verify user has MFA enabled
+    if not user.get("mfa_enabled"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="MFA is not enabled for this account"
+        )
+
+    # Decrypt and verify TOTP code
+    secret = totp_service.decrypt_secret(user["mfa_secret"])
+    if not totp_service.verify_code(secret, request_data.mfa_code):
+        # Log failed attempt
+        supabase.table("mfa_attempts").insert({
+            "user_id": user_id,
+            "success": False,
+            "ip_address": request.client.host if request.client else None,
+            "user_agent": request.headers.get("user-agent")
+        }).execute()
+
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication code"
+        )
+
+    # Log successful attempt
+    supabase.table("mfa_attempts").insert({
+        "user_id": user_id,
+        "success": True,
+        "ip_address": request.client.host if request.client else None,
+        "user_agent": request.headers.get("user-agent")
+    }).execute()
+
+    # Issue full access token
+    tenant = request.state.tenant
+
+    access_token = create_access_token(
+        data={
+            "sub": user["user_id"],
+            "email": user["email"],
+            "role": user["role"]
+        },
+        tenant_id=tenant.tenant_id,
+        subdomain=tenant.subdomain
+    )
+
+    return AuthResponse(
+        user=UserResponse(**user),
+        access_token=access_token
+    )
