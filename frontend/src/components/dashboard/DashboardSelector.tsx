@@ -11,9 +11,10 @@
  */
 
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Select, SelectOption } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
-import { Plus, LayoutDashboard } from 'lucide-react'
+import { Plus, LayoutDashboard, Sparkles } from 'lucide-react'
 import { useDashboardConfigList } from '@/api/dashboardConfig'
 import { CreateDashboardDialog } from './CreateDashboardDialog'
 import { cn } from '@/lib/utils'
@@ -31,6 +32,7 @@ export function DashboardSelector({
   onDashboardChange,
   className,
 }: DashboardSelectorProps) {
+  const navigate = useNavigate()
   const { data: response, isLoading } = useDashboardConfigList(true)
   const [selectedId, setSelectedId] = useState<string | undefined>(selectedDashboardId)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
@@ -113,13 +115,23 @@ export function DashboardSelector({
         </div>
 
         <Button
+          variant="default"
+          size="sm"
+          onClick={() => navigate('/dashboard/builder')}
+          className="whitespace-nowrap"
+        >
+          <Sparkles className="h-4 w-4 mr-2" />
+          Build Dashboard
+        </Button>
+
+        <Button
           variant="outline"
           size="sm"
           onClick={() => setShowCreateDialog(true)}
           className="whitespace-nowrap"
         >
           <Plus className="h-4 w-4" />
-          New Dashboard
+          Quick Add
         </Button>
       </div>
 
