@@ -2,12 +2,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { Settings as SettingsIcon, User, Bell, Shield } from 'lucide-react'
+import { Settings as SettingsIcon, User, Bell, Shield, Lock, ArrowRight } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
+import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 
 export function Settings() {
   const { user } = useAuth()
+  const navigate = useNavigate()
 
   const handleSave = () => {
     toast.success('Settings saved successfully')
@@ -111,6 +113,33 @@ export function Settings() {
               type="checkbox"
               className="h-5 w-5 rounded border-border text-primary focus:ring-2 focus:ring-primary focus:ring-offset-2"
             />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Security */}
+      <Card className="border-border bg-card shadow-sm">
+        <CardHeader className="border-b border-border bg-background/50">
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <div className="h-8 w-8 rounded-lg bg-destructive/10 flex items-center justify-center">
+              <Lock className="h-4 w-4 text-destructive" />
+            </div>
+            Security & Authentication
+          </CardTitle>
+          <CardDescription>Manage your account security settings</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4 pt-6">
+          <div className="flex items-center justify-between p-4 rounded-lg border border-border hover:bg-background/50 transition-colors cursor-pointer" onClick={() => navigate('/settings/security')}>
+            <div className="flex items-center gap-4">
+              <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Shield className="h-6 w-6 text-primary" />
+              </div>
+              <div>
+                <p className="font-semibold text-foreground">Two-Factor Authentication (2FA)</p>
+                <p className="text-sm text-muted-foreground mt-1">Add an extra layer of security to your account</p>
+              </div>
+            </div>
+            <ArrowRight className="h-5 w-5 text-muted-foreground" />
           </div>
         </CardContent>
       </Card>

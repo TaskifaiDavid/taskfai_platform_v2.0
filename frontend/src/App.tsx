@@ -15,6 +15,7 @@ import { Analytics } from '@/pages/Analytics'
 import { Dashboards } from '@/pages/Dashboards'
 import { Admin } from '@/pages/Admin'
 import { Settings } from '@/pages/Settings'
+import { MFASettings } from '@/pages/MFASettings'
 
 function AppRoutes() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
@@ -44,6 +45,7 @@ function AppRoutes() {
         <Route path="analytics" element={<Analytics />} />
         <Route path="dashboards" element={<Dashboards />} />
         <Route path="settings" element={<Settings />} />
+        <Route path="settings/security" element={<MFASettings />} />
         <Route
           path="admin"
           element={
