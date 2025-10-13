@@ -14,6 +14,10 @@ import { cn } from '@/lib/utils'
 import { KPIGridWidget } from './widgets/KPIGridWidget'
 import { RecentUploadsWidget } from './widgets/RecentUploadsWidget'
 import { TopProductsWidget } from './widgets/TopProductsWidget'
+import { ResellerPerformanceWidget } from './widgets/ResellerPerformanceWidget'
+import { SalesTrendWidget } from './widgets/SalesTrendWidget'
+import { RevenueChartWidget } from './widgets/RevenueChartWidget'
+import { CategoryRevenueWidget } from './widgets/CategoryRevenueWidget'
 
 interface DynamicDashboardProps {
   config: DashboardConfig
@@ -35,16 +39,16 @@ function DynamicWidget({ widget }: { widget: WidgetConfig }) {
       return <TopProductsWidget config={widget} />
 
     case WidgetType.RESELLER_PERFORMANCE:
+      return <ResellerPerformanceWidget config={widget} />
+
     case WidgetType.CATEGORY_REVENUE:
+      return <CategoryRevenueWidget config={widget} />
+
     case WidgetType.REVENUE_CHART:
+      return <RevenueChartWidget config={widget} />
+
     case WidgetType.SALES_TREND:
-      return (
-        <div className="rounded-lg border border-dashed border-border p-6 text-center">
-          <p className="text-sm text-muted-foreground">
-            Widget type <code className="px-2 py-1 bg-muted rounded">{widget.type}</code> coming soon
-          </p>
-        </div>
-      )
+      return <SalesTrendWidget config={widget} />
 
     default:
       return (

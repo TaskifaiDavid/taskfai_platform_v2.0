@@ -23,12 +23,13 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetMetadata> = {
         type: 'multiselect',
         options: [
           { value: 'total_revenue', label: 'Total Revenue', description: 'Total sales across all channels' },
-          { value: 'total_orders', label: 'Total Orders', description: 'Number of orders placed' },
-          { value: 'avg_order_value', label: 'Average Order Value', description: 'Average revenue per order' },
-          { value: 'top_product', label: 'Top Product', description: 'Best-selling product' },
-          { value: 'top_reseller', label: 'Top Reseller', description: 'Best-performing reseller' },
-          { value: 'online_revenue', label: 'Online Revenue', description: 'E-commerce sales only' },
-          { value: 'offline_revenue', label: 'Offline Revenue', description: 'B2B/wholesale sales only' }
+          { value: 'total_units', label: 'Total Units Sold', description: 'Total number of units sold' },
+          { value: 'avg_price', label: 'Average Price', description: 'Average price per unit' },
+          { value: 'total_uploads', label: 'Total Uploads', description: 'Number of files uploaded' },
+          { value: 'reseller_count', label: 'Reseller Count', description: 'Number of active resellers' },
+          { value: 'category_mix', label: 'Category Mix', description: 'Product category distribution' },
+          { value: 'yoy_growth', label: 'YoY Growth', description: 'Year-over-year growth percentage' },
+          { value: 'top_products', label: 'Top Products', description: 'Best-selling products' }
         ],
         required: true
       },
