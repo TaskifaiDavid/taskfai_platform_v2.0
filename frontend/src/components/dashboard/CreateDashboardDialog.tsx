@@ -129,14 +129,14 @@ export function CreateDashboardDialog({
           layout: [
             {
               id: 'kpi-grid-1',
-              type: 'kpi_grid',
+              type: WidgetType.KPI_GRID,
               position: { row: 0, col: 0, width: 12, height: 2 },
               props: {
-                kpis: ['total_revenue', 'total_units', 'avg_price', 'total_uploads']
+                kpis: [KPIType.TOTAL_REVENUE, KPIType.TOTAL_UNITS, KPIType.AVG_PRICE, KPIType.TOTAL_UPLOADS]
               }
             }
           ],
-          kpis: ['total_revenue', 'total_units', 'avg_price', 'total_uploads'],
+          kpis: [KPIType.TOTAL_REVENUE, KPIType.TOTAL_UNITS, KPIType.AVG_PRICE, KPIType.TOTAL_UPLOADS],
           filters: {
             date_range: 'last_30_days',
             vendor: 'all',

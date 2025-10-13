@@ -116,7 +116,10 @@ export function CategoryRevenueWidget({ config }: CategoryRevenueWidgetProps) {
                   fill="#8884d8"
                   paddingAngle={2}
                   dataKey="value"
-                  label={({ name, percent }: { name: string; percent: number }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  label={(props: any) => {
+                    const { name, percent } = props
+                    return `${name} ${(percent * 100).toFixed(0)}%`
+                  }}
                 >
                   {chartData.map((_entry, index) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
