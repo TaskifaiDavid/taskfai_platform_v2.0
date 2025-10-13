@@ -157,7 +157,7 @@ class DashboardConfigCreate(BaseModel):
     dashboard_name: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = Field(default=None, max_length=1000)
     layout: List[WidgetConfig] = Field(..., min_items=1)
-    kpis: List[KPIType] = Field(..., min_items=1)
+    kpis: List[KPIType] = Field(default_factory=list)
     filters: DashboardFilters = Field(default_factory=DashboardFilters)
     is_default: bool = Field(default=False)
     is_active: bool = Field(default=True)
@@ -178,7 +178,7 @@ class DashboardConfigUpdate(BaseModel):
     dashboard_name: Optional[str] = Field(default=None, min_length=1, max_length=255)
     description: Optional[str] = Field(default=None, max_length=1000)
     layout: Optional[List[WidgetConfig]] = Field(default=None, min_items=1)
-    kpis: Optional[List[KPIType]] = Field(default=None, min_items=1)
+    kpis: Optional[List[KPIType]] = Field(default=None)
     filters: Optional[DashboardFilters] = None
     is_default: Optional[bool] = None
     is_active: Optional[bool] = None
