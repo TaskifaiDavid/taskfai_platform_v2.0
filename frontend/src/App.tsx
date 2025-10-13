@@ -8,6 +8,7 @@ import { useAuthStore } from '@/stores/auth'
 // Pages
 import { Login } from '@/pages/Login'
 import { Dashboard } from '@/pages/Dashboard'
+import { DashboardBuilder } from '@/pages/DashboardBuilder'
 import { Uploads } from '@/pages/Uploads'
 import { Chat } from '@/pages/Chat'
 import { Analytics } from '@/pages/Analytics'
@@ -37,6 +38,7 @@ function AppRoutes() {
       >
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
+        <Route path="dashboard/builder" element={<DashboardBuilder />} />
         <Route path="uploads" element={<Uploads />} />
         <Route path="chat" element={<Chat />} />
         <Route path="analytics" element={<Analytics />} />
