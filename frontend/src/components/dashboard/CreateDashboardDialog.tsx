@@ -95,12 +95,21 @@ export function CreateDashboardDialog({
 
         if (template) {
           // TODO: Fetch full template config to copy layout/kpis
-          // For now, create with empty layout
+          // For now, create with default KPI widget
           config = {
             dashboard_name: dashboardName.trim(),
             description: description.trim() || undefined,
-            layout: [],
-            kpis: [],
+            layout: [
+              {
+                id: 'kpi-grid-1',
+                type: 'kpi_grid',
+                position: { row: 0, col: 0, width: 12, height: 2 },
+                props: {
+                  kpis: ['total_revenue', 'total_units', 'avg_price', 'total_uploads']
+                }
+              }
+            ],
+            kpis: ['total_revenue', 'total_units', 'avg_price', 'total_uploads'],
             filters: {
               date_range: 'last_30_days',
               vendor: 'all',
@@ -112,12 +121,21 @@ export function CreateDashboardDialog({
           throw new Error('Selected template not found')
         }
       } else {
-        // Create blank dashboard
+        // Create dashboard with default KPI widget (prevents 422 validation error)
         config = {
           dashboard_name: dashboardName.trim(),
           description: description.trim() || undefined,
-          layout: [],
-          kpis: [],
+          layout: [
+            {
+              id: 'kpi-grid-1',
+              type: 'kpi_grid',
+              position: { row: 0, col: 0, width: 12, height: 2 },
+              props: {
+                kpis: ['total_revenue', 'total_units', 'avg_price', 'total_uploads']
+              }
+            }
+          ],
+          kpis: ['total_revenue', 'total_units', 'avg_price', 'total_uploads'],
           filters: {
             date_range: 'last_30_days',
             vendor: 'all',
