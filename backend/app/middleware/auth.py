@@ -35,6 +35,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
         "/api/docs",
         "/api/redoc",
         "/openapi.json",
+        # Diagnostic endpoint
+        "/api/debug/tenant",
         # Auth endpoints - with /api prefix (local dev)
         "/api/auth/login",
         "/api/auth/register",

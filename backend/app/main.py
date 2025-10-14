@@ -3,11 +3,12 @@ TaskifAI - Sales Data Analytics Platform
 Main FastAPI Application
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import auth, uploads, chat, dashboards, analytics, admin, dashboard_config
 from app.core.config import settings
+from app.core.tenant import TenantContextManager
 from app.middleware.tenant_context import TenantContextMiddleware
 from app.middleware.auth import AuthMiddleware
 from app.middleware.logging import RequestLoggingMiddleware
@@ -76,6 +77,67 @@ async def health_check():
     return {
         "status": "healthy",
         "version": settings.app_version
+    }
+
+
+@app.get("/api/debug/tenant")
+async def debug_tenant(request: Request):
+    """
+    Diagnostic endpoint to debug tenant context setup
+
+    This endpoint bypasses authentication to help diagnose why
+    request.state.tenant is not being set by TenantContextMiddleware.
+    """
+    # Extract hostname from request
+    hostname = request.headers.get("host", "").split(":")[0]
+
+    # Manually test subdomain extraction
+    try:
+        subdomain = TenantContextManager.extract_subdomain(hostname)
+    except Exception as e:
+        subdomain = f"ERROR: {str(e)}"
+
+    # Try to get demo context
+    try:
+        demo_context = TenantContextManager.get_demo_context()
+        demo_context_str = {
+            "tenant_id": demo_context.tenant_id,
+            "subdomain": demo_context.subdomain,
+            "database_url": demo_context.database_url[:50] + "..." if demo_context.database_url else None
+        }
+    except Exception as e:
+        demo_context_str = f"ERROR: {str(e)}"
+
+    # Check if tenant is in request.state
+    has_tenant = hasattr(request.state, "tenant")
+    tenant_from_state = None
+    if has_tenant:
+        try:
+            tenant = request.state.tenant
+            tenant_from_state = {
+                "tenant_id": tenant.tenant_id,
+                "subdomain": tenant.subdomain,
+                "database_url": tenant.database_url[:50] + "..." if tenant.database_url else None
+            }
+        except Exception as e:
+            tenant_from_state = f"ERROR accessing tenant: {str(e)}"
+
+    return {
+        "request_info": {
+            "path": request.url.path,
+            "method": request.method,
+            "hostname": hostname,
+        },
+        "subdomain_extraction": {
+            "extracted_subdomain": subdomain,
+            "should_be": "demo (for *.ondigitalocean.app)",
+        },
+        "demo_context_test": demo_context_str,
+        "request_state": {
+            "has_tenant_attribute": has_tenant,
+            "tenant_value": tenant_from_state,
+        },
+        "diagnosis": "If has_tenant_attribute is False, TenantContextMiddleware is not setting request.state.tenant"
     }
 
 
