@@ -25,10 +25,11 @@ app = FastAPI(
 # CORS middleware - supports all tenant subdomains
 # Development: localhost origins from settings.allowed_origins
 # Production: All tenant subdomains (demo.taskifai.com, bibbi.taskifai.com, etc.)
+# DigitalOcean: Also support *.ondigitalocean.app for deployed apps
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,  # localhost for development
-    allow_origin_regex=r"https://([a-z0-9-]+)\.taskifai\.com",  # tenant subdomains only
+    allow_origin_regex=r"https://([a-z0-9-]+)\.(taskifai\.com|ondigitalocean\.app)",  # tenant subdomains + DO apps
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -45,11 +45,12 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
         if request.method == "OPTIONS":
             return await call_next(request)
 
-        # Skip tenant resolution for health/root endpoints only
+        # Skip tenant resolution for health/root/debug endpoints only
         # All auth endpoints now require tenant context (tenant-specific login)
         skip_paths = [
             "/health",  # Health check endpoint (App Platform & Docker)
             "/",  # Root endpoint
+            "/api/debug/tenant",  # Debug endpoint for troubleshooting tenant context
         ]
         if request.url.path in skip_paths:
             return await call_next(request)
