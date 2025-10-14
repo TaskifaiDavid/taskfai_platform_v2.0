@@ -18,7 +18,11 @@ export function useLogin() {
     mutationFn: (credentials: LoginRequest) =>
       apiClient.post<AuthResponse>('/api/auth/login', credentials),
     onSuccess: (data) => {
-      setAuth(data.user, data.access_token)
+      // Only set auth if we have a valid token (not MFA flow)
+      // MFA flow returns {requires_mfa: true, temp_token: "..."} without user/access_token
+      if (data.access_token && data.user) {
+        setAuth(data.user, data.access_token)
+      }
     },
   })
 }

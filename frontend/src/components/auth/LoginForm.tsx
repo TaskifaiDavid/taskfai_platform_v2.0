@@ -47,11 +47,13 @@ export function LoginForm({ initialEmail }: LoginFormProps) {
           })
         } else {
           // Standard login success (no MFA)
+          // Token already saved by useLogin hook's onSuccess
           addNotification({
             type: 'success',
             title: 'Welcome back!',
             message: 'You have successfully logged in',
           })
+          navigate('/dashboard')
         }
       } catch (error: any) {
         addNotification({
