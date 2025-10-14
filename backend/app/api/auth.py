@@ -126,24 +126,25 @@ async def login(
         )
 
     # Step 3: Check if MFA enabled
-    if user.get("mfa_enabled"):
-        # MFA required - return temporary token for MFA verification
-        temp_token = create_access_token(
-            data={
-                "sub": user["user_id"],
-                "email": user["email"],
-                "requires_mfa": True
-            },
-            expires_minutes=5,  # Short-lived (5 minutes)
-            add_jti=True  # One-time use token
-        )
-        return {
-            "requires_mfa": True,
-            "temp_token": temp_token,
-            "message": "Please enter your 6-digit authentication code"
-        }
+    # TEMPORARILY DISABLED: MFA check commented out for troubleshooting
+    # if user.get("mfa_enabled"):
+    #     # MFA required - return temporary token for MFA verification
+    #     temp_token = create_access_token(
+    #         data={
+    #             "sub": user["user_id"],
+    #             "email": user["email"],
+    #             "requires_mfa": True
+    #         },
+    #         expires_minutes=5,  # Short-lived (5 minutes)
+    #         add_jti=True  # One-time use token
+    #     )
+    #     return {
+    #         "requires_mfa": True,
+    #         "temp_token": temp_token,
+    #         "message": "Please enter your 6-digit authentication code"
+    #     }
 
-    # Step 4: No MFA - standard login flow
+    # Step 4: No MFA - standard login flow (always used with MFA disabled)
     tenant = request.state.tenant
 
     access_token = create_access_token(
