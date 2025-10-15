@@ -52,17 +52,18 @@ export function FileUpload() {
     if (fileQueue.length === 0) return
 
     setIsUploading(true)
-    let successCount = 0
-    let failCount = 0
 
-    for (const queuedFile of fileQueue) {
-      try {
-        await uploadFile.mutateAsync({ file: queuedFile.file, mode: 'append' })
-        successCount++
-      } catch (error) {
-        failCount++
-      }
-    }
+    // Upload all files in parallel instead of sequentially
+    const uploadPromises = fileQueue.map((queuedFile) =>
+      uploadFile
+        .mutateAsync({ file: queuedFile.file, mode: 'append' })
+        .then(() => ({ success: true, filename: queuedFile.file.name }))
+        .catch((error) => ({ success: false, filename: queuedFile.file.name, error }))
+    )
+
+    const results = await Promise.all(uploadPromises)
+    const successCount = results.filter((r) => r.success).length
+    const failCount = results.filter((r) => !r.success).length
 
     setIsUploading(false)
     setFileQueue([])

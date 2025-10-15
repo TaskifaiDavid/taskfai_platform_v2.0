@@ -111,7 +111,7 @@ class KPICalculator:
         # Apply date filters if provided
         # Note: Supabase REST API doesn't support complex date operations easily
         # So we'll fetch and filter in Python
-        result = query.execute()
+        result = query.limit(100000).execute()
 
         if not result.data:
             return {
@@ -166,7 +166,7 @@ class KPICalculator:
         if end_date:
             query = query.lte("order_date", end_date.isoformat())
 
-        result = query.execute()
+        result = query.limit(100000).execute()
 
         if not result.data:
             return {
@@ -257,7 +257,7 @@ class KPICalculator:
 
         # Query sellout_entries2 with user_id filter
         query = self.supabase.table("sellout_entries2").select("functional_name,product_ean,sales_eur,quantity,month,year").eq("user_id", user_id)
-        result = query.execute()
+        result = query.limit(100000).execute()
 
         if not result.data:
             return []
@@ -312,7 +312,7 @@ class KPICalculator:
         if end_date:
             query = query.lte("order_date", end_date.isoformat())
 
-        result = query.execute()
+        result = query.limit(100000).execute()
 
         if not result.data:
             return []
@@ -366,5 +366,5 @@ class KPICalculator:
         if end_date:
             query = query.lte("upload_timestamp", end_date.isoformat())
 
-        result = query.execute()
+        result = query.limit(100000).execute()
         return result.count or 0
