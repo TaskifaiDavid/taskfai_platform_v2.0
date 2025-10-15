@@ -49,9 +49,9 @@ app.add_middleware(AuthMiddleware)
 app.add_middleware(TenantContextMiddleware)
 
 # Include routers
-# NOTE: Auth router registered twice to handle DigitalOcean App Platform route rewriting:
-# - /api/auth/* (local development, direct backend access)
-# - /auth/* (production with App Platform stripping /api prefix)
+# NOTE: Auth and Admin routers registered twice to handle DigitalOcean App Platform route rewriting:
+# - /api/auth/* and /api/admin/* (local development, direct backend access)
+# - /auth/* and /admin/* (production with App Platform stripping /api prefix)
 app.include_router(auth.router, prefix="/api")
 app.include_router(auth.router)  # Register without /api prefix for production
 app.include_router(uploads.router, prefix="/api")
@@ -60,6 +60,7 @@ app.include_router(dashboards.router, prefix="/api")
 app.include_router(dashboard_config.router, prefix="/api")
 app.include_router(analytics.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
+app.include_router(admin.router)  # Register without /api prefix for production
 
 
 @app.get("/")
