@@ -190,8 +190,8 @@ class OnlineProcessor:
                 # Default to "Online" if not specified
                 transformed[target_col] = str(value).strip() if value else "Online"
             elif target_col == "order_id_ref":
-                # Store reference order ID if provided
-                transformed[target_col] = str(value).strip() if value else None
+                # Skip order_id_ref - not in database schema, just for reference in Excel
+                pass
 
         return transformed
 
