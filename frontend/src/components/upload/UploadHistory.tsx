@@ -63,7 +63,21 @@ export function UploadHistory({ onViewDetails }: UploadHistoryProps) {
                   {new Date(upload.uploaded_at).toLocaleString()}
                 </TableCell>
                 <TableCell>
-                  {upload.total_rows ? (
+                  {upload.status === 'processing' && upload.total_rows ? (
+                    <div className="flex items-center gap-2">
+                      <div className="w-24 bg-gray-200 rounded-full h-2 overflow-hidden">
+                        <div
+                          className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                          style={{
+                            width: `${Math.min(100, Math.round((upload.successful_rows / upload.total_rows) * 100))}%`
+                          }}
+                        />
+                      </div>
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">
+                        {Math.round((upload.successful_rows / upload.total_rows) * 100)}%
+                      </span>
+                    </div>
+                  ) : upload.total_rows ? (
                     <span className="text-sm">
                       {upload.successful_rows}/{upload.total_rows}
                     </span>

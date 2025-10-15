@@ -82,8 +82,22 @@ def process_upload(self, batch_id: str, user_id: str, file_content_b64: str, fil
             if batch["upload_mode"] == "append":
                 transformed_data = inserter.check_duplicates(user_id, "ecommerce_orders", transformed_data)
 
-            # Insert demo data into ecommerce_orders table
-            successful, failed = inserter.insert_ecommerce_orders(transformed_data, batch["upload_mode"])
+            # Progress callback to update database
+            def report_progress(current: int, total: int):
+                try:
+                    supabase.table("upload_batches").update({
+                        "rows_processed": current,
+                        "rows_total": total
+                    }).eq("upload_batch_id", batch_id).execute()
+                except Exception as e:
+                    print(f"Progress update error: {e}")
+
+            # Insert demo data into ecommerce_orders table with progress tracking
+            successful, failed = inserter.insert_ecommerce_orders(
+                transformed_data,
+                batch["upload_mode"],
+                progress_callback=report_progress
+            )
 
             result = {
                 "total_rows": process_result["total_rows"],
@@ -107,8 +121,22 @@ def process_upload(self, batch_id: str, user_id: str, file_content_b64: str, fil
             if batch["upload_mode"] == "append":
                 transformed_data = inserter.check_duplicates(user_id, "ecommerce_orders", transformed_data)
 
-            # Insert online data into ecommerce_orders table
-            successful, failed = inserter.insert_ecommerce_orders(transformed_data, batch["upload_mode"])
+            # Progress callback to update database
+            def report_progress(current: int, total: int):
+                try:
+                    supabase.table("upload_batches").update({
+                        "rows_processed": current,
+                        "rows_total": total
+                    }).eq("upload_batch_id", batch_id).execute()
+                except Exception as e:
+                    print(f"Progress update error: {e}")
+
+            # Insert online data into ecommerce_orders table with progress tracking
+            successful, failed = inserter.insert_ecommerce_orders(
+                transformed_data,
+                batch["upload_mode"],
+                progress_callback=report_progress
+            )
 
             result = {
                 "total_rows": process_result["total_rows"],

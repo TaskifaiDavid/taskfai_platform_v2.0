@@ -2,7 +2,7 @@
 Data insertion service for processed records
 """
 
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional, Callable
 from supabase import Client
 
 
@@ -15,7 +15,8 @@ class DataInserter:
     def insert_sellout_entries(
         self,
         records: List[Dict[str, Any]],
-        mode: str = "append"
+        mode: str = "append",
+        progress_callback: Optional[Callable[[int, int], None]] = None
     ) -> Tuple[int, int]:
         """
         Insert sellout entries into database
@@ -23,6 +24,7 @@ class DataInserter:
         Args:
             records: List of record dictionaries
             mode: "append" or "replace"
+            progress_callback: Optional callback function(current, total) for progress tracking
 
         Returns:
             Tuple of (successful_count, failed_count)
@@ -37,12 +39,13 @@ class DataInserter:
         if mode == "replace" and user_id:
             self._delete_existing_data(user_id, "sellout_entries2")
 
-        # Insert in batches
-        batch_size = 1000
+        # Insert in batches - reduced from 1000 to 100 for better progress tracking
+        batch_size = 100
         successful = 0
         failed = 0
+        total_records = len(records)
 
-        for i in range(0, len(records), batch_size):
+        for i in range(0, total_records, batch_size):
             batch = records[i:i + batch_size]
 
             try:
@@ -67,12 +70,17 @@ class DataInserter:
                     except Exception as single_error:
                         print(f"Single record insert error: {single_error}")
 
+            # Report progress after each batch
+            if progress_callback:
+                progress_callback(successful + failed, total_records)
+
         return successful, failed
 
     def insert_ecommerce_orders(
         self,
         records: List[Dict[str, Any]],
-        mode: str = "append"
+        mode: str = "append",
+        progress_callback: Optional[Callable[[int, int], None]] = None
     ) -> Tuple[int, int]:
         """
         Insert ecommerce orders into database
@@ -80,6 +88,7 @@ class DataInserter:
         Args:
             records: List of order dictionaries
             mode: "append" or "replace"
+            progress_callback: Optional callback function(current, total) for progress tracking
 
         Returns:
             Tuple of (successful_count, failed_count)
@@ -94,12 +103,13 @@ class DataInserter:
         if mode == "replace" and user_id:
             self._delete_existing_data(user_id, "ecommerce_orders")
 
-        # Insert in batches
-        batch_size = 1000
+        # Insert in batches - reduced from 1000 to 100 for better progress tracking
+        batch_size = 100
         successful = 0
         failed = 0
+        total_records = len(records)
 
-        for i in range(0, len(records), batch_size):
+        for i in range(0, total_records, batch_size):
             batch = records[i:i + batch_size]
 
             try:
@@ -123,6 +133,10 @@ class DataInserter:
                             failed -= 1
                     except Exception as single_error:
                         print(f"Single record insert error: {single_error}")
+
+            # Report progress after each batch
+            if progress_callback:
+                progress_callback(successful + failed, total_records)
 
         return successful, failed
 
