@@ -1,12 +1,9 @@
 """
-Analytics services for predictions and advanced analysis
+Analytics services
 
-This package provides:
-- Time series forecasting (predictor.py)
-- Trend and seasonality analysis (analyzer.py)
+Note: Prediction and analysis functionality has been migrated to AI-driven analysis
+in the ai_chat module (agent.py). Statistical engines removed in favor of flexible
+AI-powered insights via OpenAI GPT.
 """
 
-from .predictor import SalesPredictionEngine
-from .analyzer import SalesAnalysisEngine
-
-__all__ = ['SalesPredictionEngine', 'SalesAnalysisEngine']
+__all__ = []
