@@ -69,11 +69,15 @@ class KPICalculator:
         if total_units > 0:
             avg_price = total_revenue / total_units
 
+        # Calculate upload count
+        total_uploads = self._count_completed_uploads(user_id, start_date, end_date)
+
         return {
             'total_revenue': float(total_revenue),
             'total_units': total_units,
             'avg_price': float(avg_price),
             'average_order_value': float(avg_price),
+            'total_uploads': total_uploads,
             'offline': offline_kpis,
             'online': online_kpis,
             'top_resellers': [],  # Placeholder
@@ -323,3 +327,34 @@ class KPICalculator:
         # Sort by revenue and return top
         sorted_products = sorted(products.values(), key=lambda x: x['revenue'], reverse=True)
         return sorted_products[:limit]
+
+    def _count_completed_uploads(
+        self,
+        user_id: str,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None
+    ) -> int:
+        """
+        Count completed upload batches for user
+
+        Args:
+            user_id: User ID for RLS filtering
+            start_date: Start date filter (optional)
+            end_date: End date filter (optional)
+
+        Returns:
+            Count of completed uploads
+        """
+        query = self.supabase.table("upload_batches")\
+            .select("upload_batch_id", count="exact")\
+            .eq("uploader_user_id", user_id)\
+            .eq("processing_status", "completed")
+
+        # Apply date filters if provided
+        if start_date:
+            query = query.gte("upload_timestamp", start_date.isoformat())
+        if end_date:
+            query = query.lte("upload_timestamp", end_date.isoformat())
+
+        result = query.execute()
+        return result.count or 0

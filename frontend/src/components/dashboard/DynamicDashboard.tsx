@@ -75,27 +75,12 @@ export function DynamicDashboard({ config, className }: DynamicDashboardProps) {
   }
 
   return (
-    <div className={cn("space-y-8 animate-in fade-in-0 slide-in-from-bottom-4 duration-500", className)}>
-      <div className="space-y-2">
-        <div className="flex items-center gap-3 mb-2">
-          <h1 className="text-4xl font-bold tracking-tight">{config.dashboard_name}</h1>
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-success/10 border border-success/30">
-            <div className="h-2 w-2 rounded-full bg-success animate-pulse" />
-            <span className="text-xs font-semibold text-success">Live</span>
-          </div>
+    <div className={cn("space-y-6 animate-in fade-in-0 slide-in-from-bottom-4 duration-500", className)}>
+      {config.layout.map((widget) => (
+        <div key={widget.id} className="w-full">
+          <DynamicWidget widget={widget} />
         </div>
-        {config.description && (
-          <p className="text-base text-muted-foreground">{config.description}</p>
-        )}
-      </div>
-
-      <div className="space-y-6">
-        {config.layout.map((widget) => (
-          <div key={widget.id} className="w-full">
-            <DynamicWidget widget={widget} />
-          </div>
-        ))}
-      </div>
+      ))}
     </div>
   )
 }

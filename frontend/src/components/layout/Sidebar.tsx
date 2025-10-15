@@ -25,7 +25,7 @@ const navigation = [
   { name: 'Uploads', href: '/uploads', icon: Upload, description: 'Manage data files' },
   { name: 'AI Chat', href: '/chat', icon: MessageSquare, description: 'Ask questions', badge: 'AI' },
   { name: 'Analytics', href: '/analytics', icon: BarChart3, description: 'Detailed insights' },
-  { name: 'Dashboards', href: '/dashboards', icon: Monitor, description: 'Visual reports' },
+  { name: 'External Dashboards', href: '/dashboards', icon: Monitor, description: 'External BI tools' },
 ]
 
 const adminNavigation = [

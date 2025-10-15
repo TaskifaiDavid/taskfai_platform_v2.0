@@ -26,8 +26,8 @@ export function Dashboards() {
             <Monitor className="h-6 w-6 text-primary" />
           </div>
           <div>
-            <h1 className="text-3xl font-bold">Dashboards</h1>
-            <p className="text-sm text-muted-foreground mt-1">Embedded analytics dashboards</p>
+            <h1 className="text-3xl font-bold">External Dashboards</h1>
+            <p className="text-sm text-muted-foreground mt-1">Third-party embedded dashboards</p>
           </div>
         </div>
 
@@ -54,8 +54,8 @@ export function Dashboards() {
           <Monitor className="h-6 w-6 text-primary" />
         </div>
         <div>
-          <h1 className="text-3xl font-bold">Dashboards</h1>
-          <p className="text-sm text-muted-foreground mt-1">Embedded analytics dashboards</p>
+          <h1 className="text-3xl font-bold">External Dashboards</h1>
+          <p className="text-sm text-muted-foreground mt-1">Third-party embedded dashboards</p>
         </div>
       </div>
 
