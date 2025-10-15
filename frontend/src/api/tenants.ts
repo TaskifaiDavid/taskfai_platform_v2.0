@@ -17,8 +17,7 @@ import type {
  * Create new tenant
  */
 export async function createTenant(data: TenantCreate): Promise<Tenant> {
-  const response = await apiClient.post<Tenant>('/admin/tenants', data)
-  return response.data
+  return await apiClient.post<Tenant>('/admin/tenants', data)
 }
 
 /**
@@ -29,18 +28,14 @@ export async function listTenants(params?: {
   offset?: number
   active_only?: boolean
 }): Promise<TenantListResponse> {
-  const response = await apiClient.get<TenantListResponse>('/admin/tenants', {
-    params,
-  })
-  return response.data
+  return await apiClient.get<TenantListResponse>('/admin/tenants', params)
 }
 
 /**
  * Get tenant by ID
  */
 export async function getTenant(tenantId: string): Promise<Tenant> {
-  const response = await apiClient.get<Tenant>(`/admin/tenants/${tenantId}`)
-  return response.data
+  return await apiClient.get<Tenant>(`/admin/tenants/${tenantId}`)
 }
 
 /**
@@ -50,11 +45,7 @@ export async function updateTenant(
   tenantId: string,
   data: TenantUpdate
 ): Promise<Tenant> {
-  const response = await apiClient.patch<Tenant>(
-    `/admin/tenants/${tenantId}`,
-    data
-  )
-  return response.data
+  return await apiClient.patch<Tenant>(`/admin/tenants/${tenantId}`, data)
 }
 
 /**
@@ -64,11 +55,10 @@ export async function addUserToTenant(
   tenantId: string,
   user: UserTenant
 ): Promise<{ message: string }> {
-  const response = await apiClient.post<{ message: string }>(
+  return await apiClient.post<{ message: string }>(
     `/admin/tenants/${tenantId}/users`,
     user
   )
-  return response.data
 }
 
 /**
