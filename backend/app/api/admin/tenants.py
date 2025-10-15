@@ -29,8 +29,8 @@ def get_tenant_registry_client() -> Client:
         Configured Supabase client for registry
     """
     return create_client(
-        settings.tenant_registry_url,
-        settings.tenant_registry_service_key
+        settings.get_tenant_registry_url(),
+        settings.get_tenant_registry_service_key()
     )
 
 
