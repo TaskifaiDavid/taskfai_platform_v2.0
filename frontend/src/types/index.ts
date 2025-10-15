@@ -129,6 +129,10 @@ export interface KPIs {
   total_units: number
   avg_price: number
   total_uploads?: number
+  gross_profit?: number
+  profit_margin?: number
+  unique_countries?: number
+  order_count?: number
   top_products: Array<{
     product_name: string
     revenue: number

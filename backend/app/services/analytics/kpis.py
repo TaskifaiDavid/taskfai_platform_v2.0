@@ -72,12 +72,22 @@ class KPICalculator:
         # Calculate upload count
         total_uploads = self._count_completed_uploads(user_id, start_date, end_date)
 
+        # Extract additional online KPIs for dashboard
+        gross_profit = online_kpis.get('gross_profit', 0) if online_kpis else 0
+        profit_margin = online_kpis.get('profit_margin', 0) if online_kpis else 0
+        unique_countries = online_kpis.get('unique_countries', 0) if online_kpis else 0
+        order_count = online_kpis.get('order_count', 0) if online_kpis else 0
+
         return {
             'total_revenue': float(total_revenue),
             'total_units': total_units,
             'avg_price': float(avg_price),
             'average_order_value': float(avg_price),
             'total_uploads': total_uploads,
+            'gross_profit': float(gross_profit),
+            'profit_margin': float(profit_margin),
+            'unique_countries': unique_countries,
+            'order_count': order_count,
             'offline': offline_kpis,
             'online': online_kpis,
             'top_resellers': [],  # Placeholder
