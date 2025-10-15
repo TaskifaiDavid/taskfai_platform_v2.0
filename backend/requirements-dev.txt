@@ -1,0 +1,25 @@
+# Development and Testing Dependencies
+
+# Testing Framework
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+pytest-cov>=4.1.0
+pytest-mock>=3.12.0
+httpx>=0.26.0  # For testing async HTTP clients
+
+# Linting and Code Quality
+ruff>=0.2.0  # Fast Python linter
+black>=24.0.0  # Code formatter
+
+# Type Checking
+mypy>=1.8.0
+types-redis>=4.6.0
+
+# Security Scanning
+safety>=3.0.0  # Dependency vulnerability scanner
+bandit>=1.7.0  # Security linter
+
+# Development Tools
+ipython>=8.20.0  # Better REPL
+ipdb>=0.13.0  # Debugger
+watchdog>=4.0.0  # File watching for auto-reload

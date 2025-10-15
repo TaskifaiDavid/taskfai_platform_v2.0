@@ -16,6 +16,8 @@ import { Dashboards } from '@/pages/Dashboards'
 import { Admin } from '@/pages/Admin'
 import { Settings } from '@/pages/Settings'
 import { MFASettings } from '@/pages/MFASettings'
+import { TenantList } from '@/pages/TenantList'
+import { TenantOnboarding } from '@/pages/TenantOnboarding'
 
 function AppRoutes() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
@@ -51,6 +53,22 @@ function AppRoutes() {
           element={
             <ProtectedRoute requireAdmin>
               <Admin />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="admin/tenants"
+          element={
+            <ProtectedRoute requireAdmin>
+              <TenantList />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="admin/tenants/new"
+          element={
+            <ProtectedRoute requireAdmin>
+              <TenantOnboarding />
             </ProtectedRoute>
           }
         />

@@ -35,22 +35,23 @@ class Settings(BaseSettings):
     supabase_service_key: str
     database_url: Optional[str] = None
 
-    # Tenant Registry (uses same Supabase project in development)
-    # In production: Set these to a separate Supabase project URL/keys
-    @property
-    def tenant_registry_url(self) -> str:
-        """Tenant registry database URL (defaults to main supabase_url in dev)"""
-        return self.supabase_url
+    # Tenant Registry - Separate Supabase project for multi-tenant management
+    # This is the TaskifAI-TenantRegistry database (jzyvvmzkhprmqrqmxzdv)
+    tenant_registry_url: Optional[str] = None
+    tenant_registry_anon_key: Optional[str] = None
+    tenant_registry_service_key: Optional[str] = None
 
-    @property
-    def tenant_registry_anon_key(self) -> str:
-        """Tenant registry anon key (defaults to main supabase_anon_key in dev)"""
-        return self.supabase_anon_key
+    def get_tenant_registry_url(self) -> str:
+        """Get tenant registry URL (falls back to main DB if not configured)"""
+        return self.tenant_registry_url or self.supabase_url
 
-    @property
-    def tenant_registry_service_key(self) -> str:
-        """Tenant registry service key (defaults to main supabase_service_key in dev)"""
-        return self.supabase_service_key
+    def get_tenant_registry_anon_key(self) -> str:
+        """Get tenant registry anon key (falls back to main DB if not configured)"""
+        return self.tenant_registry_anon_key or self.supabase_anon_key
+
+    def get_tenant_registry_service_key(self) -> str:
+        """Get tenant registry service key (falls back to main DB if not configured)"""
+        return self.tenant_registry_service_key or self.supabase_service_key
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"

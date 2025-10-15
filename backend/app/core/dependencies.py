@@ -150,10 +150,10 @@ async def require_super_admin(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)]
 ) -> dict:
     """
-    Require super_admin role for endpoint
+    Require super admin access for endpoint
 
-    Validates JWT token and checks for super_admin role claim.
-    Used for tenant management endpoints.
+    Validates JWT token and checks if user email exists in super_admins table.
+    This allows separation between regular tenant admins and platform super admins.
 
     Args:
         credentials: HTTP Bearer token from request header
@@ -162,7 +162,7 @@ async def require_super_admin(
         Token payload with user information
 
     Raises:
-        HTTPException: If token invalid or role is not super_admin
+        HTTPException: If token invalid or user is not a super admin
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -172,7 +172,7 @@ async def require_super_admin(
 
     forbidden_exception = HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
-        detail="Super admin access required"
+        detail="Super admin access required. Contact platform administrator."
     )
 
     # Decode token
@@ -182,10 +182,36 @@ async def require_super_admin(
     if payload is None:
         raise credentials_exception
 
-    # Extract and validate role
-    role = payload.get("role")
-    if role != "super_admin":
-        raise forbidden_exception
+    # Extract email from token
+    email = payload.get("email")
+    if not email:
+        raise credentials_exception
+
+    # Check if email exists in super_admins table (tenant registry database)
+    try:
+        registry_client = create_client(
+            settings.get_tenant_registry_url(),
+            settings.get_tenant_registry_service_key()
+        )
+
+        response = registry_client.table("super_admins")\
+            .select("email")\
+            .eq("email", email.lower())\
+            .execute()
+
+        if not response.data:
+            # User not in super_admins allowlist
+            raise forbidden_exception
+
+    except HTTPException:
+        # Re-raise our custom exceptions
+        raise
+    except Exception as e:
+        # Database connection or query error
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to verify super admin status: {str(e)}"
+        )
 
     return payload
 
