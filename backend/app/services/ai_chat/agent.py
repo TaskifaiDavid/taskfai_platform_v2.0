@@ -23,8 +23,6 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 from .intent import IntentDetector, QueryIntent
 from .security import QuerySecurityValidator
-from ..analytics.predictor import SalesPredictionEngine, create_prediction_from_supabase_data
-from ..analytics.analyzer import SalesAnalysisEngine, analyze_supabase_data
 
 
 # Database schema for AI context
@@ -257,6 +255,103 @@ Provide a clear answer:""")
         response = self.llm.invoke(messages)
         return response.content.strip()
 
+    async def _analyze_with_ai(
+        self,
+        query: str,
+        historical_data: List[Dict[str, Any]],
+        analysis_type: str = "general"
+    ) -> str:
+        """
+        Analyze historical data using AI instead of statistical engines
+
+        Args:
+            query: User's original question
+            historical_data: List of dicts with 'date' and 'sales' keys
+            analysis_type: Type of analysis (prediction or analysis)
+
+        Returns:
+            Natural language analysis response
+        """
+        if not historical_data:
+            return "I need historical sales data to perform analysis. Please upload some sales data first."
+
+        # Calculate summary statistics for context
+        total_records = len(historical_data)
+        total_sales = sum(float(record.get('sales', 0)) for record in historical_data)
+        avg_sales = total_sales / total_records if total_records > 0 else 0
+
+        # Get date range
+        dates = [record.get('date') for record in historical_data]
+        date_range_start = min(dates) if dates else "Unknown"
+        date_range_end = max(dates) if dates else "Unknown"
+
+        # Format data for AI (limit to recent data for token efficiency)
+        recent_data = historical_data[-100:] if len(historical_data) > 100 else historical_data
+        data_summary = json.dumps(recent_data, indent=2)
+
+        system_prompt = """You are an expert sales analytics consultant with deep experience in:
+- Time series forecasting and predictions
+- Trend analysis and pattern recognition
+- Seasonality detection
+- Anomaly identification
+- Business insights and recommendations
+
+Your goal is to analyze the provided historical sales data and answer the user's question with:
+1. Clear, actionable insights in business terms
+2. Specific numbers, percentages, and timeframes
+3. Confidence levels for any predictions (e.g., High / Medium / Low)
+4. Explanations that avoid technical or statistical jargon
+5. Markdown formatting for readability
+
+### Output Format
+Structure your response as:
+- **Executive Summary** (3–4 bullets with the main findings)
+- **Trends & Patterns**
+- **Forecast or Outlook** (if prediction-related)
+- **Anomalies & Seasonality**
+- **Recommendations**
+
+### For Predictions
+- Provide a specific forecasted value (e.g., €X) with a realistic confidence range.
+- Explain what drives the forecast (trend, seasonality, recent momentum).
+- State key assumptions or risks that might affect accuracy.
+- Reference relevant historical context to justify conclusions.
+
+### For Analyses
+- Identify recent growth rates (MoM, QoQ, YoY if visible).
+- Highlight unusual spikes or drops and plausible reasons.
+- Detect recurring patterns (e.g., seasonal peaks, holiday uplifts).
+- Offer 2–4 prioritized actions for improvement or follow-up.
+
+### Additional Guidelines
+- Quantify wherever possible.
+- Use short, clear sentences.
+- Avoid filler or speculative explanations.
+- End with 1–2 concise recommendations tailored to the data.
+
+If the data is too sparse or inconsistent for confident conclusions, clearly state this and provide cautious observations."""
+
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=f"""
+**User Question:** {query}
+
+**Data Summary:**
+- Total Records: {total_records}
+- Date Range: {date_range_start} to {date_range_end}
+- Total Sales: €{total_sales:,.2f}
+- Average Sales per Period: €{avg_sales:,.2f}
+
+**Historical Sales Data (Recent {len(recent_data)} records):**
+{data_summary}
+
+Analyze this data and provide a comprehensive answer to the user's question.
+Include specific numbers, trends, and actionable insights.""")
+        ]
+
+        response = self.llm.invoke(messages)
+        return response.content.strip()
+
     async def _process_prediction_query(
         self,
         query: str,
@@ -265,7 +360,7 @@ Provide a clear answer:""")
         session_id: Optional[str]
     ) -> Dict[str, Any]:
         """
-        Process prediction query using forecasting engine
+        Process prediction query using AI analysis
 
         Args:
             query: User's prediction question
@@ -277,9 +372,6 @@ Provide a clear answer:""")
             Dict with prediction response
         """
         try:
-            # Extract target date from query
-            target_date = self._extract_target_date(query)
-
             # Fetch historical data
             historical_data = await self._fetch_historical_data(
                 user_id,
@@ -293,40 +385,31 @@ Provide a clear answer:""")
                     "sql": None,
                     "data": None,
                     "session_id": session_id,
-                    "prediction": None
+                    "analysis": None
                 }
 
-            # Create prediction engine and generate forecast
-            engine = SalesPredictionEngine(historical_data)
-            prediction = engine.predict(target_date, method='auto')
-
-            # Generate natural language response
-            response_text = self._format_prediction_response(query, prediction)
+            # Use AI to analyze data and generate prediction
+            response_text = await self._analyze_with_ai(
+                query,
+                historical_data,
+                analysis_type="prediction"
+            )
 
             return {
                 "response": response_text,
                 "sql": None,  # No SQL generated for predictions
-                "data": None,
+                "data": historical_data,
                 "session_id": session_id or f"session_{user_id}_{datetime.utcnow().timestamp()}",
-                "prediction": prediction
+                "analysis": {"type": "prediction", "data_points": len(historical_data)}
             }
 
-        except ValueError as e:
-            return {
-                "response": f"I couldn't generate a prediction: {str(e)}. Please ensure you have sufficient historical data (at least 3 months).",
-                "sql": None,
-                "data": None,
-                "session_id": session_id,
-                "prediction": None,
-                "error": str(e)
-            }
         except Exception as e:
             return {
                 "response": f"Prediction error: {str(e)}. Please try rephrasing your question.",
                 "sql": None,
                 "data": None,
                 "session_id": session_id,
-                "prediction": None,
+                "analysis": None,
                 "error": str(e)
             }
 
@@ -338,7 +421,7 @@ Provide a clear answer:""")
         session_id: Optional[str]
     ) -> Dict[str, Any]:
         """
-        Process advanced analysis query
+        Process advanced analysis query using AI
 
         Args:
             query: User's analysis question
@@ -366,19 +449,19 @@ Provide a clear answer:""")
                     "analysis": None
                 }
 
-            # Create analysis engine and run analysis
-            engine = SalesAnalysisEngine(historical_data)
-            analysis = engine.get_comprehensive_analysis()
-
-            # Generate natural language response
-            response_text = self._format_analysis_response(query, analysis)
+            # Use AI to analyze data
+            response_text = await self._analyze_with_ai(
+                query,
+                historical_data,
+                analysis_type="analysis"
+            )
 
             return {
                 "response": response_text,
                 "sql": None,  # No SQL generated for analysis
-                "data": None,
+                "data": historical_data,
                 "session_id": session_id or f"session_{user_id}_{datetime.utcnow().timestamp()}",
-                "analysis": analysis
+                "analysis": {"type": "analysis", "data_points": len(historical_data)}
             }
 
         except Exception as e:
@@ -450,174 +533,6 @@ Provide a clear answer:""")
             return result if result else []
         except:
             return []
-
-    def _extract_target_date(self, query: str) -> date:
-        """
-        Extract target date from prediction query
-
-        Args:
-            query: User's query string
-
-        Returns:
-            Target date for prediction
-        """
-        query_lower = query.lower()
-        current_year = datetime.now().year
-        current_month = datetime.now().month
-
-        # Month name patterns
-        month_names = {
-            'january': 1, 'february': 2, 'march': 3, 'april': 4,
-            'may': 5, 'june': 6, 'july': 7, 'august': 8,
-            'september': 9, 'october': 10, 'november': 11, 'december': 12
-        }
-
-        # Check for specific month and year (e.g., "October 2025")
-        for month_name, month_num in month_names.items():
-            pattern = rf'{month_name}\s+(202\d)'
-            match = re.search(pattern, query_lower)
-            if match:
-                year = int(match.group(1))
-                return date(year, month_num, 1)
-
-        # Check for "next month"
-        if 'next month' in query_lower:
-            if current_month == 12:
-                return date(current_year + 1, 1, 1)
-            else:
-                return date(current_year, current_month + 1, 1)
-
-        # Check for "next quarter"
-        if 'next quarter' in query_lower:
-            next_quarter_month = ((current_month - 1) // 3 + 1) * 3 + 1
-            if next_quarter_month > 12:
-                return date(current_year + 1, next_quarter_month - 12, 1)
-            else:
-                return date(current_year, next_quarter_month, 1)
-
-        # Check for "next year"
-        if 'next year' in query_lower:
-            return date(current_year + 1, 1, 1)
-
-        # Check for specific year
-        year_match = re.search(r'(202\d)', query)
-        if year_match:
-            year = int(year_match.group(1))
-            # Default to January of that year
-            return date(year, 1, 1)
-
-        # Default: predict for next month
-        if current_month == 12:
-            return date(current_year + 1, 1, 1)
-        else:
-            return date(current_year, current_month + 1, 1)
-
-    def _format_prediction_response(self, query: str, prediction: Dict[str, Any]) -> str:
-        """
-        Format prediction results into natural language
-
-        Args:
-            query: Original query
-            prediction: Prediction dictionary
-
-        Returns:
-            Natural language response
-        """
-        pred_sales = prediction['predicted_sales']
-        target_date = prediction['target_date']
-        lower_bound = prediction['confidence_interval']['lower']
-        upper_bound = prediction['confidence_interval']['upper']
-        method = prediction['method']
-        confidence = prediction['confidence_level'] * 100
-
-        # Format the date nicely
-        date_obj = datetime.strptime(target_date, '%Y-%m-%d')
-        date_str = date_obj.strftime('%B %Y')
-
-        response = f"Based on your sales trends, I predict **€{pred_sales:,.2f}** in sales for {date_str}.\n\n"
-        response += f"**Confidence Interval ({confidence:.0f}%):** €{lower_bound:,.2f} to €{upper_bound:,.2f}\n\n"
-        response += f"**Method Used:** {method.upper()} forecasting\n"
-        response += f"**Data Points Analyzed:** {prediction['data_points_used']} historical records\n"
-        response += f"**Historical Period:** {prediction['historical_period']['start']} to {prediction['historical_period']['end']}\n\n"
-
-        # Add context based on method
-        if method == 'seasonal':
-            seasonal_factor = prediction.get('seasonal_factor', 1.0)
-            if seasonal_factor > 1.1:
-                response += f"Note: {date_str} typically shows **{(seasonal_factor-1)*100:.0f}% higher** sales due to seasonal patterns."
-            elif seasonal_factor < 0.9:
-                response += f"Note: {date_str} typically shows **{(1-seasonal_factor)*100:.0f}% lower** sales due to seasonal patterns."
-        elif method == 'linear':
-            trend_coef = prediction.get('trend_coefficient', 0)
-            if trend_coef > 0:
-                response += "Your sales show a **positive growth trend**."
-            elif trend_coef < 0:
-                response += "Your sales show a **declining trend**. Consider strategies to improve performance."
-
-        return response
-
-    def _format_analysis_response(self, query: str, analysis: Dict[str, Any]) -> str:
-        """
-        Format analysis results into natural language
-
-        Args:
-            query: Original query
-            analysis: Analysis dictionary
-
-        Returns:
-            Natural language response
-        """
-        trends = analysis['trends']
-        seasonality = analysis['seasonality']
-        anomalies = analysis['anomalies']
-
-        response = "## Sales Analysis Summary\n\n"
-
-        # Trend analysis
-        response += f"### 📈 Trend Analysis\n"
-        response += f"- **Direction:** {trends['trend_direction'].capitalize()}\n"
-        response += f"- **Average Growth Rate:** {trends['average_growth_rate']:.2f}% per period\n"
-
-        if trends['latest_growth_rate']:
-            response += f"- **Latest Growth:** {trends['latest_growth_rate']:.2f}%\n"
-
-        if trends['acceleration']:
-            if trends['acceleration'] > 0:
-                response += f"- **Momentum:** Accelerating (+{trends['acceleration']:.2f}%)\n"
-            else:
-                response += f"- **Momentum:** Decelerating ({trends['acceleration']:.2f}%)\n"
-
-        response += f"- **Peak Period:** {trends['peak_period']['date']} (€{trends['peak_period']['sales']:,.2f})\n"
-        response += f"- **Lowest Period:** {trends['lowest_period']['date']} (€{trends['lowest_period']['sales']:,.2f})\n\n"
-
-        # Seasonality
-        response += f"### 🌊 Seasonality\n"
-        if seasonality['has_seasonality']:
-            response += f"- **Seasonal Pattern Detected:** Yes (p-value: {seasonality['p_value']:.4f})\n"
-            response += f"- **Strength:** {seasonality['seasonality_strength']:.2f}\n"
-
-            peak_months_names = [seasonality['month_names'][m] for m in seasonality['peak_months']]
-            low_months_names = [seasonality['month_names'][m] for m in seasonality['low_months']]
-
-            response += f"- **Peak Months:** {', '.join(peak_months_names)}\n"
-            response += f"- **Low Months:** {', '.join(low_months_names)}\n"
-            response += f"- **Peak Multiplier:** {seasonality['peak_month_multiplier']:.2f}x average\n\n"
-        else:
-            response += "- **Seasonal Pattern:** Not detected or insufficient data\n\n"
-
-        # Anomalies
-        if anomalies and len(anomalies) > 0:
-            response += f"### ⚠️ Anomalies Detected\n"
-            response += f"Found {len(anomalies)} unusual data point(s):\n\n"
-            for anomaly in anomalies[:3]:  # Show top 3
-                emoji = "📈" if anomaly['type'] == 'spike' else "📉"
-                response += f"{emoji} **{anomaly['date']}** - {anomaly['type'].capitalize()} "
-                response += f"(€{anomaly['sales']:,.2f}, {anomaly['percent_deviation']:+.1f}% from average)\n"
-        else:
-            response += f"### ✅ No Anomalies\n"
-            response += "All data points are within expected ranges.\n"
-
-        return response
 
     def get_schema_info(self) -> str:
         """Get database schema information"""
