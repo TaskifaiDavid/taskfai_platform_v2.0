@@ -92,6 +92,31 @@ def process_upload(self, batch_id: str, user_id: str, file_content_b64: str, fil
                 "detected_vendor": detected_vendor,
                 "errors": process_result["errors"]
             }
+        elif detected_vendor == "online":
+            from app.services.vendors.online_processor import OnlineProcessor
+            from app.services.data_inserter import DataInserter
+
+            processor = OnlineProcessor()
+            process_result = processor.process(file_path, user_id, batch_id)
+
+            # Insert data
+            inserter = DataInserter(supabase)
+
+            # Check duplicates if in append mode
+            transformed_data = process_result["transformed_data"]
+            if batch["upload_mode"] == "append":
+                transformed_data = inserter.check_duplicates(user_id, "ecommerce_orders", transformed_data)
+
+            # Insert online data into ecommerce_orders table
+            successful, failed = inserter.insert_ecommerce_orders(transformed_data, batch["upload_mode"])
+
+            result = {
+                "total_rows": process_result["total_rows"],
+                "successful_rows": successful,
+                "failed_rows": failed + process_result["failed_rows"],
+                "detected_vendor": detected_vendor,
+                "errors": process_result["errors"]
+            }
         elif detected_vendor == "boxnox":
             from app.services.vendors.boxnox_processor import BoxnoxProcessor
             from app.services.data_inserter import DataInserter
