@@ -4,7 +4,6 @@ Report generator for PDF, CSV, and Excel exports
 
 from typing import List, Dict, Any, Optional
 from datetime import date, datetime
-from decimal import Decimal
 import asyncpg
 from uuid import UUID
 import io

@@ -66,13 +66,13 @@ jobs:
         working-directory: ./backend
         run: |
           pip install ruff
-          ruff check app/ tests/ || true
+          ruff check app/ tests/
 
       - name: Run type checking (mypy)
         working-directory: ./backend
         run: |
           pip install mypy
-          mypy app/ || true
+          mypy app/
 
       - name: Run unit tests
         working-directory: ./backend
@@ -93,7 +93,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'sk-test-key' }}
           SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY || 'test_sendgrid_key' }}
         run: |
-          pytest tests/unit/ -v --cov=app --cov-report=xml --cov-report=term || true
+          pytest tests/unit/ -v --cov=app --cov-report=xml --cov-report=term
 
       - name: Run integration tests
         working-directory: ./backend
@@ -114,7 +114,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'sk-test-key' }}
           SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY || 'test_sendgrid_key' }}
         run: |
-          pytest tests/integration/ -v --cov=app --cov-append --cov-report=xml --cov-report=term || true
+          pytest tests/integration/ -v --cov=app --cov-append --cov-report=xml --cov-report=term
 
       - name: Run security tests
         working-directory: ./backend
@@ -135,7 +135,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'sk-test-key' }}
           SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY || 'test_sendgrid_key' }}
         run: |
-          pytest tests/security/ -v --cov=app --cov-append --cov-report=xml --cov-report=term || true
+          pytest tests/security/ -v --cov=app --cov-append --cov-report=xml --cov-report=term
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -168,7 +168,7 @@ jobs:
 
       - name: Run ESLint
         working-directory: ./frontend
-        run: npm run lint || true
+        run: npm run lint
 
       - name: Run TypeScript check
         working-directory: ./frontend
@@ -176,7 +176,7 @@ jobs:
 
       - name: Run unit tests
         working-directory: ./frontend
-        run: npm run test || echo "No tests configured yet"
+        run: npm test
 
       - name: Build production bundle
         working-directory: ./frontend
@@ -219,12 +219,12 @@ jobs:
         working-directory: ./backend
         run: |
           pip install safety
-          safety check --json || true
+          safety check --json
 
       - name: JavaScript dependency check (npm audit)
         working-directory: ./frontend
         run: |
-          npm audit --audit-level=high || true
+          npm audit --audit-level=high
 
       - name: Secret scanning with TruffleHog
         uses: trufflesecurity/trufflehog@main

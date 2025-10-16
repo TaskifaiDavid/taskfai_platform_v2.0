@@ -2,7 +2,7 @@
 
 from typing import Optional, Any
 from datetime import datetime
-from pydantic import BaseModel, Field, HttpUrl, validator
+from pydantic import BaseModel, Field, validator
 
 
 class DashboardBase(BaseModel):

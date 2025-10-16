@@ -90,7 +90,7 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
                 traceback.print_exc()
 
                 # Fallback to demo context for development
-                print(f"[TenantContextMiddleware] Falling back to demo context due to error")
+                print("[TenantContextMiddleware] Falling back to demo context due to error")
                 request.state.tenant = TenantContextManager.get_demo_context()
 
         # Continue to next handler

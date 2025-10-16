@@ -225,17 +225,17 @@ class OnlineProcessor:
                 # Try ISO format first
                 parsed = datetime.fromisoformat(value.strip())
                 return parsed.date().isoformat()
-            except:
+            except (ValueError, AttributeError):
                 try:
                     # Try common formats
                     for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y"]:
                         try:
                             parsed = datetime.strptime(value.strip(), fmt)
                             return parsed.date().isoformat()
-                        except:
+                        except ValueError:
                             continue
                     raise ValueError(f"Unable to parse date: {value}")
-                except:
+                except ValueError:
                     raise ValueError(f"Invalid date format: {value}")
         else:
             raise ValueError(f"Invalid date type: {type(value)}")
