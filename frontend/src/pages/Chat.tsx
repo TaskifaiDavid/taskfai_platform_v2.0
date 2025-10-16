@@ -11,6 +11,7 @@ import toast from 'react-hot-toast'
 export function Chat() {
   const [sessionId, setSessionId] = useState<string>()
   const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [isThinking, setIsThinking] = useState(false)
   const chatQuery = useChatQuery()
   const { data: history } = useChatHistory(sessionId)
 
@@ -30,8 +31,7 @@ export function Chat() {
       timestamp: new Date().toISOString(),
     }
     setMessages((prev) => [...prev, userMessage])
-
-    const loadingToast = toast.loading('AI is thinking...')
+    setIsThinking(true)
 
     try {
       const response = await chatQuery.mutateAsync({ query, session_id: sessionId })
@@ -45,11 +45,12 @@ export function Chat() {
         timestamp: new Date().toISOString(),
       }
       setMessages((prev) => [...prev, assistantMessage])
-      toast.success('Response received', { id: loadingToast })
     } catch (error) {
-      toast.error('Failed to process your question. Please try again.', { id: loadingToast })
+      toast.error('Failed to process your question. Please try again.')
       // Remove user message on error
       setMessages((prev) => prev.slice(0, -1))
+    } finally {
+      setIsThinking(false)
     }
   }
 
@@ -101,7 +102,7 @@ export function Chat() {
               </div>
             </div>
           ) : (
-            <MessageList messages={messages} />
+            <MessageList messages={messages} isThinking={isThinking} />
           )}
         </div>
       </Card>

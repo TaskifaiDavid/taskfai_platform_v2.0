@@ -14,7 +14,7 @@ export function Message({ message }: MessageProps) {
   const isUser = message.role === 'user'
 
   return (
-    <div className={cn('flex gap-3', isUser && 'flex-row-reverse')}>
+    <div className={cn('flex gap-3 animate-in fade-in-0 duration-300', isUser && 'flex-row-reverse')}>
       <div className={cn(
         'flex h-8 w-8 shrink-0 items-center justify-center rounded-full',
         isUser ? 'bg-primary' : 'bg-secondary'
