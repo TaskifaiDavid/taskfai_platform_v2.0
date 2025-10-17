@@ -80,6 +80,16 @@ class TenantContextManager:
             is_active=True
         )
 
+    @staticmethod
+    def get_bibbi_context() -> TenantContext:
+        """Get BIBBI tenant context for local testing"""
+        return TenantContext(
+            tenant_id="bibbi",
+            company_name="BIBBI Parfum",
+            subdomain="bibbi",
+            is_active=True
+        )
+
     async def from_subdomain(self, subdomain: str) -> TenantContext:
         """
         Get tenant context from subdomain
@@ -161,6 +171,10 @@ class TenantContextManager:
             - Prevents path traversal, XSS, SQL injection attempts
         """
         import re
+
+        # Handle localhost with bibbi subdomain for testing
+        if hostname.startswith("bibbi.localhost"):
+            return "bibbi"  # BIBBI tenant for local testing
 
         # Handle localhost
         if "localhost" in hostname or hostname.startswith("127.0.0.1"):

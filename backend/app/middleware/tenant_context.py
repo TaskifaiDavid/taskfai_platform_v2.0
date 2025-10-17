@@ -64,10 +64,15 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
         # For demo/localhost/app, always use demo context without database lookup
         # This ensures local development works even if tenant registry is not set up
         # "app" subdomain is the central login portal at app.taskifai.com
+        # "bibbi" subdomain is for local testing of BIBBI tenant features
         if subdomain in ("demo", "localhost", "app", None):
             print(f"[TenantContextMiddleware] Using demo context for subdomain: {subdomain}")
             request.state.tenant = TenantContextManager.get_demo_context()
             print(f"[TenantContextMiddleware] Set demo tenant: {request.state.tenant}")
+        elif subdomain == "bibbi":
+            print(f"[TenantContextMiddleware] Using BIBBI context for local testing")
+            request.state.tenant = TenantContextManager.get_bibbi_context()
+            print(f"[TenantContextMiddleware] Set BIBBI tenant: {request.state.tenant}")
         else:
             # Production tenant - lookup from registry
             try:

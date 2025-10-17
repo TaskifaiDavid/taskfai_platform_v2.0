@@ -153,6 +153,8 @@ class BibbιTableQuery:
         self._tenant_id = tenant_id
         self._query = client.table(table_name)
         self._tenant_filter_applied = False
+        self._select_args = None
+        self._select_kwargs = {}
 
     def _ensure_tenant_filter(self):
         """Ensure tenant filter is applied before any query execution"""
@@ -162,9 +164,9 @@ class BibbιTableQuery:
         return self._query
 
     def select(self, *args, **kwargs):
-        """Select with automatic tenant filtering"""
-        self._ensure_tenant_filter()
-        self._query = self._query.select(*args, **kwargs)
+        """Select with automatic tenant filtering - applied at execution time"""
+        self._select_args = args
+        self._select_kwargs = kwargs
         return self
 
     def insert(self, data, **kwargs):
@@ -265,6 +267,11 @@ class BibbιTableQuery:
     def execute(self):
         """Execute query with tenant filter guaranteed"""
         self._ensure_tenant_filter()
+
+        # Apply select at the end if specified
+        if self._select_args is not None:
+            self._query = self._query.select(*self._select_args, **self._select_kwargs)
+
         return self._query.execute()
 
 
@@ -286,6 +293,26 @@ def get_bibbi_supabase_client(
         BibbιSupabaseClient with automatic tenant filtering
     """
     return BibbιSupabaseClient(supabase)
+
+
+def get_bibbi_db() -> BibbιSupabaseClient:
+    """
+    Standalone function to get BIBBI database client without FastAPI dependency injection.
+
+    Used by Celery workers and other background tasks that don't have access to FastAPI's DI.
+
+    Usage:
+        bibbi_db = get_bibbi_db()
+        result = bibbi_db.table("sales_unified").select("*").execute()
+
+    Returns:
+        BibbιSupabaseClient with automatic tenant filtering
+    """
+    from supabase import create_client
+    from app.core.config import settings
+
+    supabase_client = create_client(settings.supabase_url, settings.supabase_service_key)
+    return BibbιSupabaseClient(supabase_client)
 
 
 # Type aliases for dependency injection

@@ -178,21 +178,22 @@ async def upload_bibbi_file(
     file_hash = calculate_file_hash(file_content)
 
     # Check for duplicate upload
-    existing_upload = await check_duplicate_upload(file_hash, bibbi_db)
-    if existing_upload:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "message": "File already uploaded",
-                "existing_upload_id": existing_upload.get("upload_id"),
-                "uploaded_at": existing_upload.get("upload_timestamp"),
-                "status": existing_upload.get("upload_status")
-            }
-        )
+    # TODO: Create uploads table in migration and enable this check
+    # existing_upload = await check_duplicate_upload(file_hash, bibbi_db)
+    # if existing_upload:
+    #     raise HTTPException(
+    #         status_code=status.HTTP_409_CONFLICT,
+    #         detail={
+    #             "message": "File already uploaded",
+    #             "existing_upload_id": existing_upload.get("upload_id"),
+    #             "uploaded_at": existing_upload.get("upload_timestamp"),
+    #             "status": existing_upload.get("upload_status")
+    #         }
+    #     )
 
     # Generate unique IDs
     upload_id = str(uuid.uuid4())
-    batch_id = f"bibbi_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{upload_id[:8]}"
+    batch_id = str(uuid.uuid4())  # Generate proper UUID for upload_batch_id column
 
     # Create upload directory if it doesn't exist
     upload_dir = Path(settings.bibbi_upload_dir)
@@ -212,9 +213,9 @@ async def upload_bibbi_file(
             detail=f"Failed to save file: {str(e)}"
         )
 
-    # Validate reseller exists
+    # Validate reseller exists (use underlying client - resellers table doesn't have text tenant_id)
     try:
-        reseller_check = bibbi_db.table("resellers")\
+        reseller_check = bibbi_db.client.table("resellers")\
             .select("reseller_id")\
             .eq("reseller_id", reseller_id)\
             .execute()
@@ -232,28 +233,25 @@ async def upload_bibbi_file(
             detail=f"Failed to validate reseller: {str(e)}"
         )
 
-    # Create upload record in database
+    # Create upload record in upload_batches table (using existing table for now)
     try:
         upload_data = {
-            "upload_id": upload_id,
             "upload_batch_id": batch_id,
+            "uploader_user_id": "3eae3da5-f2af-449c-8000-d4874c955a05",  # BIBBI admin user
             "reseller_id": reseller_id,
-            "filename": file.filename,
-            "file_path": str(file_path),
-            "file_size": file_size,
-            "file_hash": file_hash,
-            "upload_status": "pending",
-            "upload_timestamp": datetime.utcnow().isoformat(),
+            "original_filename": file.filename,
+            "file_size_bytes": file_size,
+            "upload_mode": "append",
             "processing_status": "pending",
-            # tenant_id automatically added by BibbιSupabaseClient
+            "upload_timestamp": datetime.utcnow().isoformat(),
         }
 
-        result = bibbi_db.table("uploads").insert(upload_data).execute()
+        result = bibbi_db.client.table("upload_batches").insert(upload_data).execute()
 
         if not result.data:
             raise Exception("Failed to create upload record")
 
-        print(f"[BibbιUpload] Created upload record: {upload_id}")
+        print(f"[BibbιUpload] Created upload_batches record: {batch_id}")
 
     except Exception as e:
         # Cleanup: Delete file if database insert failed
@@ -268,8 +266,8 @@ async def upload_bibbi_file(
     # Enqueue Celery task for async processing
     try:
         from app.workers.bibbi_tasks import process_bibbi_upload
-        process_bibbi_upload.delay(upload_id, str(file_path))
-        print(f"[BibbιUpload] Celery task enqueued for upload: {upload_id}")
+        process_bibbi_upload.delay(batch_id, str(file_path))  # Pass batch_id, not upload_id
+        print(f"[BibbιUpload] Celery task enqueued for batch: {batch_id}")
     except Exception as e:
         print(f"[BibbιUpload] Warning: Failed to enqueue Celery task: {e}")
         # Don't fail the upload if Celery is down - allow manual retry later

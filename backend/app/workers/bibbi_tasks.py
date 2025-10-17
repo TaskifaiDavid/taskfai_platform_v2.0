@@ -36,12 +36,12 @@ from app.services.bibbi import (
 
 
 @celery_app.task(bind=True, name="app.workers.bibbi_tasks.process_bibbi_upload")
-def process_bibbi_upload(self, upload_id: str, file_path: str) -> Dict[str, Any]:
+def process_bibbi_upload(self, batch_id: str, file_path: str) -> Dict[str, Any]:
     """
     Process BIBBI reseller upload through complete pipeline
 
     Args:
-        upload_id: Upload UUID from uploads table
+        batch_id: Batch UUID from upload_batches table (primary key)
         file_path: Absolute path to uploaded Excel file
 
     Returns:
@@ -53,18 +53,17 @@ def process_bibbi_upload(self, upload_id: str, file_path: str) -> Dict[str, Any]
     """
     bibbi_db = get_bibbi_db()
     staging_id = None
-    batch_id = None
 
     try:
-        print(f"[BIBBI Task] Starting processing for upload: {upload_id}")
+        print(f"[BIBBI Task] Starting processing for batch: {batch_id}")
 
-        # Update upload status to processing
-        bibbi_db.table("uploads")\
+        # Update upload_batches status to processing (use underlying client - no tenant_id column)
+        bibbi_db.client.table("upload_batches")\
             .update({
-                "upload_status": "processing",
+                "processing_status": "processing",
                 "processing_started_at": datetime.utcnow().isoformat()
             })\
-            .eq("upload_id", upload_id)\
+            .eq("upload_batch_id", batch_id)\
             .execute()
 
         # ============================================
@@ -110,14 +109,14 @@ def process_bibbi_upload(self, upload_id: str, file_path: str) -> Dict[str, Any]
         # ============================================
         print(f"[BIBBI Task] Phase 3: Routing to processor...")
 
-        # Get reseller_id from uploads table
-        upload_result = bibbi_db.table("uploads")\
+        # Get reseller_id from upload_batches table (use underlying client - no tenant_id column)
+        upload_result = bibbi_db.client.table("upload_batches")\
             .select("reseller_id")\
-            .eq("upload_id", upload_id)\
+            .eq("upload_batch_id", batch_id)\
             .execute()
 
         if not upload_result.data:
-            raise Exception(f"Upload not found: {upload_id}")
+            raise Exception(f"Upload batch not found: {batch_id}")
 
         reseller_id = upload_result.data[0]["reseller_id"]
 
@@ -125,10 +124,6 @@ def process_bibbi_upload(self, upload_id: str, file_path: str) -> Dict[str, Any]
         processor = route_bibbi_vendor(vendor_name, reseller_id, bibbi_db)
 
         print(f"[BIBBI Task] Processing file with {vendor_name} processor...")
-
-        # Generate unique batch_id for this upload
-        import uuid
-        batch_id = str(uuid.uuid4())
 
         # Process file
         processing_result = processor.process(file_path, batch_id)
@@ -269,13 +264,12 @@ def process_bibbi_upload(self, upload_id: str, file_path: str) -> Dict[str, Any]
         # ============================================
         # SUCCESS RESULT
         # ============================================
-        print(f"[BIBBI Task] Processing complete for upload: {upload_id}")
+        print(f"[BIBBI Task] Processing complete for batch: {batch_id}")
 
         return {
             "success": True,
-            "upload_id": upload_id,
-            "staging_id": staging_id,
             "batch_id": batch_id,
+            "staging_id": staging_id,
             "vendor": vendor_name,
             "confidence": confidence,
             "processing": {
@@ -310,21 +304,21 @@ def process_bibbi_upload(self, upload_id: str, file_path: str) -> Dict[str, Any]
         except Exception:
             pass  # Ignore cleanup errors
 
-        # Update upload status to failed
+        # Update upload_batches status to failed (use underlying client - no tenant_id column)
         try:
-            bibbi_db.table("uploads")\
+            bibbi_db.client.table("upload_batches")\
                 .update({
-                    "upload_status": "failed",
+                    "processing_status": "failed",
                     "processing_completed_at": datetime.utcnow().isoformat(),
                     "processing_errors": {
                         "error_message": error_message,
                         "error_trace": error_trace[:1000]  # Truncate trace
                     }
                 })\
-                .eq("upload_id", upload_id)\
+                .eq("upload_batch_id", batch_id)\
                 .execute()
         except Exception as update_error:
-            print(f"[BIBBI Task] Failed to update upload status: {update_error}")
+            print(f"[BIBBI Task] Failed to update batch status: {update_error}")
 
         # Update staging status to failed if staging was created
         if staging_id:
@@ -343,9 +337,8 @@ def process_bibbi_upload(self, upload_id: str, file_path: str) -> Dict[str, Any]
         # ============================================
         return {
             "success": False,
-            "upload_id": upload_id,
-            "staging_id": staging_id,
             "batch_id": batch_id,
+            "staging_id": staging_id,
             "error": error_message,
             "trace": error_trace[:1000]  # Truncate for response
         }
