@@ -38,6 +38,13 @@ class ValidationResult:
         self.valid_data = valid_data
         self.errors = errors
 
+    @property
+    def validation_success_rate(self) -> float:
+        """Calculate validation success rate as percentage"""
+        if self.total_rows == 0:
+            return 0.0
+        return round(self.valid_rows / self.total_rows * 100, 2)
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization"""
         return {

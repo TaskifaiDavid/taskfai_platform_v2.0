@@ -17,6 +17,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, status, Depends
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.core.dependencies import get_current_user
 from app.core.bibbi import (
     get_bibbi_tenant_context,
     get_bibbi_supabase_client,
@@ -90,7 +91,7 @@ async def check_duplicate_upload(
     """
     try:
         # Query uploads table for same file hash
-        result = bibbi_db.table("uploads")\
+        result = bibbi_db.table("upload_batches")\
             .select("*")\
             .eq("file_hash", file_hash)\
             .execute()
@@ -109,6 +110,7 @@ async def check_duplicate_upload(
 async def upload_bibbi_file(
     file: UploadFile = File(..., description="Excel file from reseller"),
     reseller_id: str = ...,
+    current_user: dict = Depends(get_current_user),
     bibbi_tenant: BibbιTenant = Depends(get_bibbi_tenant_context),
     bibbi_db: BibbιDB = Depends(get_bibbi_supabase_client)
 ):
@@ -237,7 +239,7 @@ async def upload_bibbi_file(
     try:
         upload_data = {
             "upload_batch_id": batch_id,
-            "uploader_user_id": "3eae3da5-f2af-449c-8000-d4874c955a05",  # BIBBI admin user
+            "uploader_user_id": current_user["user_id"],  # Use authenticated user ID
             "reseller_id": reseller_id,
             "original_filename": file.filename,
             "file_size_bytes": file_size,
@@ -287,6 +289,7 @@ async def upload_bibbi_file(
 @router.get("/uploads/{upload_id}", response_model=UploadStatusResponse)
 async def get_upload_status(
     upload_id: str,
+    current_user: dict = Depends(get_current_user),
     bibbi_tenant: BibbιTenant = Depends(get_bibbi_tenant_context),
     bibbi_db: BibbιDB = Depends(get_bibbi_supabase_client)
 ):
@@ -305,7 +308,7 @@ async def get_upload_status(
         404 Not Found: Upload not found
     """
     try:
-        result = bibbi_db.table("uploads")\
+        result = bibbi_db.table("upload_batches")\
             .select("*")\
             .eq("upload_id", upload_id)\
             .execute()
@@ -344,6 +347,7 @@ async def list_uploads(
     limit: int = 50,
     offset: int = 0,
     status_filter: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
     bibbi_tenant: BibbιTenant = Depends(get_bibbi_tenant_context),
     bibbi_db: BibbιDB = Depends(get_bibbi_supabase_client)
 ):
@@ -361,7 +365,7 @@ async def list_uploads(
         List of uploads with pagination info
     """
     try:
-        query = bibbi_db.table("uploads")\
+        query = bibbi_db.table("upload_batches")\
             .select("*")\
             .order("upload_timestamp", desc=True)\
             .range(offset, offset + limit - 1)
@@ -389,6 +393,7 @@ async def list_uploads(
 @router.post("/uploads/{upload_id}/retry")
 async def retry_failed_upload(
     upload_id: str,
+    current_user: dict = Depends(get_current_user),
     bibbi_tenant: BibbιTenant = Depends(get_bibbi_tenant_context),
     bibbi_db: BibbιDB = Depends(get_bibbi_supabase_client)
 ):
@@ -409,7 +414,7 @@ async def retry_failed_upload(
     """
     try:
         # Get upload record
-        result = bibbi_db.table("uploads")\
+        result = bibbi_db.table("upload_batches")\
             .select("*")\
             .eq("upload_id", upload_id)\
             .execute()
@@ -437,7 +442,7 @@ async def retry_failed_upload(
             "updated_at": datetime.utcnow().isoformat()
         }
 
-        bibbi_db.table("uploads")\
+        bibbi_db.table("upload_batches")\
             .update(update_data)\
             .eq("upload_id", upload_id)\
             .execute()

@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Body
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
+from app.core.dependencies import get_current_user
 from app.core.bibbi import (
     get_bibbi_tenant_context,
     get_bibbi_supabase_client,
@@ -93,6 +94,7 @@ class UnmappedProductsResponse(BaseModel):
 @router.post("", response_model=ProductMappingResponse, status_code=status.HTTP_201_CREATED)
 async def create_product_mapping(
     mapping_data: ProductMappingCreate,
+    current_user: dict = Depends(get_current_user),
     bibbi_tenant: BibbιTenant = Depends(get_bibbi_tenant_context),
     bibbi_db: BibbιDB = Depends(get_bibbi_supabase_client)
 ):
@@ -152,6 +154,7 @@ async def create_product_mapping(
 @router.post("/bulk", status_code=status.HTTP_201_CREATED)
 async def bulk_create_product_mappings(
     bulk_data: ProductMappingBulkCreate,
+    current_user: dict = Depends(get_current_user),
     bibbi_tenant: BibbιTenant = Depends(get_bibbi_tenant_context),
     bibbi_db: BibbιDB = Depends(get_bibbi_supabase_client)
 ):
@@ -194,6 +197,7 @@ async def bulk_create_product_mappings(
 async def list_product_mappings(
     reseller_id: str,
     active_only: bool = True,
+    current_user: dict = Depends(get_current_user),
     bibbi_tenant: BibbιTenant = Depends(get_bibbi_tenant_context),
     bibbi_db: BibbιDB = Depends(get_bibbi_supabase_client)
 ):
@@ -241,6 +245,7 @@ async def list_product_mappings(
 @router.get("/{mapping_id}", response_model=ProductMappingResponse)
 async def get_product_mapping(
     mapping_id: str,
+    current_user: dict = Depends(get_current_user),
     bibbi_tenant: BibbιTenant = Depends(get_bibbi_tenant_context),
     bibbi_db: BibbιDB = Depends(get_bibbi_supabase_client)
 ):
@@ -285,6 +290,7 @@ async def get_product_mapping(
 async def update_product_mapping(
     mapping_id: str,
     update_data: ProductMappingUpdate,
+    current_user: dict = Depends(get_current_user),
     bibbi_tenant: BibbιTenant = Depends(get_bibbi_tenant_context),
     bibbi_db: BibbιDB = Depends(get_bibbi_supabase_client)
 ):
@@ -356,6 +362,7 @@ async def update_product_mapping(
 @router.delete("/{mapping_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_product_mapping(
     mapping_id: str,
+    current_user: dict = Depends(get_current_user),
     bibbi_tenant: BibbιTenant = Depends(get_bibbi_tenant_context),
     bibbi_db: BibbιDB = Depends(get_bibbi_supabase_client)
 ):
@@ -380,6 +387,7 @@ async def delete_product_mapping(
 @router.post("/unmapped", response_model=UnmappedProductsResponse)
 async def find_unmapped_products(
     request_data: UnmappedProductsRequest,
+    current_user: dict = Depends(get_current_user),
     bibbi_tenant: BibbιTenant = Depends(get_bibbi_tenant_context),
     bibbi_db: BibbιDB = Depends(get_bibbi_supabase_client)
 ):

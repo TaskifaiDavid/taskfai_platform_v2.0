@@ -73,14 +73,14 @@ def process_bibbi_upload(self, batch_id: str, file_path: str) -> Dict[str, Any]:
 
         staging_service = get_staging_service(bibbi_db)
         staging_id = staging_service.stage_upload(
-            upload_id=upload_id,
+            upload_id=batch_id,
             file_path=file_path
         )
 
         print(f"[BIBBI Task] Staging complete: {staging_id}")
 
         # Link staging to upload
-        staging_service.link_staging_to_upload(staging_id, upload_id)
+        staging_service.link_staging_to_upload(staging_id, batch_id)
 
         # ============================================
         # PHASE 2: VENDOR DETECTION
@@ -237,7 +237,7 @@ def process_bibbi_upload(self, batch_id: str, file_path: str) -> Dict[str, Any]:
 
         # Update upload with final results
         insertion_service.update_upload_status(
-            upload_id=upload_id,
+            upload_id=batch_id,
             insertion_result=insertion_result
         )
 

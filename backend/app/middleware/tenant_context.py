@@ -9,6 +9,7 @@ from fastapi import Request, HTTPException, status
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
+from app.core.config import settings
 from app.core.tenant import TenantContextManager, TenantContext
 
 
@@ -89,14 +90,24 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
                     detail=f"Tenant error: {str(e)}"
                 )
             except Exception as e:
-                # Other errors (database, etc.) - fallback to demo for development
+                # Other errors (database, etc.)
                 print(f"[TenantContextMiddleware] Exception: {e}")
                 import traceback
                 traceback.print_exc()
 
-                # Fallback to demo context for development
-                print(f"[TenantContextMiddleware] Falling back to demo context due to error")
-                request.state.tenant = TenantContextManager.get_demo_context()
+                # SECURITY: Only fallback to demo in development mode
+                # In production, reject requests to prevent tenant bypass attacks
+                if settings.debug:
+                    # Development mode - fallback to demo for convenience
+                    print(f"[TenantContextMiddleware] DEBUG mode: Falling back to demo context")
+                    request.state.tenant = TenantContextManager.get_demo_context()
+                else:
+                    # Production mode - reject request to prevent bypass
+                    print(f"[TenantContextMiddleware] PRODUCTION mode: Rejecting request due to tenant resolution error")
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail="Tenant service temporarily unavailable. Please try again later."
+                    )
 
         # Continue to next handler
         response = await call_next(request)
