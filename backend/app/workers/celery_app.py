@@ -107,6 +107,7 @@ celery_app.conf.update(
     include=[
         'app.workers.tasks',
         'app.workers.bibbi_tasks',
+        'app.workers.unified_tasks',  # Unified upload processor (merges demo + BIBBI)
     ]
 )
 

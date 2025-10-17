@@ -18,15 +18,19 @@ router = APIRouter(tags=["uploads"])
 async def upload_file(
     file: UploadFile = File(...),
     mode: str = Form(...),  # "append" or "replace"
+    reseller_id: Optional[str] = Form(None),  # Optional BIBBI reseller ID
+    tenant_id: Optional[str] = Form(None),  # Optional tenant override
     current_user = Depends(get_current_user),
     supabase = Depends(get_supabase_client)
 ):
     """
-    Upload data file for processing
+    Unified upload endpoint for both D2C (demo) and B2B (BIBBI reseller) data
 
     Args:
         file: Uploaded file (Excel or CSV)
         mode: Upload mode - "append" or "replace"
+        reseller_id: Optional BIBBI reseller identifier (triggers B2B processing)
+        tenant_id: Optional tenant context override
         current_user: Authenticated user
         supabase: Supabase client
 
@@ -83,13 +87,25 @@ async def upload_file(
         file_storage.cleanup_batch(user_id, batch_id)
         raise HTTPException(status_code=500, detail=f"Failed to create batch record: {str(e)}")
 
-    # Trigger Celery background processing task with file content
+    # Trigger unified Celery worker with intelligent routing
     # Pass file as base64 to worker (separate container, can't access /tmp/uploads)
     import base64
     file_content_b64 = base64.b64encode(file_content).decode('utf-8')
 
-    from app.workers.tasks import process_upload
-    process_upload.delay(batch_id, user_id, file_content_b64, file.filename)
+    # Determine tenant context
+    if not tenant_id:
+        # Extract from current user's tenant context if available
+        tenant_id = current_user.get("tenant_id", "demo")
+
+    from app.workers.unified_tasks import process_unified_upload
+    process_unified_upload.delay(
+        batch_id=batch_id,
+        user_id=user_id,
+        file_content_b64=file_content_b64,
+        filename=file.filename,
+        reseller_id=reseller_id,
+        tenant_id=tenant_id
+    )
 
     return {
         "success": True,
