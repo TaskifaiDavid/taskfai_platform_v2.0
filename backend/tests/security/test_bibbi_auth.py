@@ -367,6 +367,80 @@ class TestRateLimiting:
 
 
 # ============================================
+# TENANT OVERRIDE TESTS
+# ============================================
+
+class TestTenantOverride:
+    """Test TENANT_ID_OVERRIDE environment variable behavior"""
+
+    def test_tenant_override_bibbi_sets_correct_context(self):
+        """Test that TENANT_ID_OVERRIDE=bibbi sets tenant_id='bibbi'"""
+        from app.core.config import settings
+        from app.core.tenant import TenantContextManager
+
+        # Temporarily set override
+        original_override = settings.tenant_id_override
+        settings.tenant_id_override = "bibbi"
+
+        try:
+            # Get BIBBI context
+            bibbi_context = TenantContextManager.get_bibbi_context()
+
+            # Verify tenant_id is 'bibbi'
+            assert bibbi_context.tenant_id == "bibbi"
+            assert bibbi_context.company_name == "BIBBI Parfum"
+            assert bibbi_context.is_active is True
+        finally:
+            # Restore original
+            settings.tenant_id_override = original_override
+
+    def test_tenant_override_demo_sets_correct_context(self):
+        """Test that TENANT_ID_OVERRIDE=demo sets tenant_id='demo'"""
+        from app.core.config import settings
+        from app.core.tenant import TenantContextManager
+
+        # Temporarily set override
+        original_override = settings.tenant_id_override
+        settings.tenant_id_override = "demo"
+
+        try:
+            # Get demo context
+            demo_context = TenantContextManager.get_demo_context()
+
+            # Verify tenant_id is 'demo'
+            assert demo_context.tenant_id == "demo"
+            assert demo_context.company_name == "TaskifAI Demo"
+            assert demo_context.is_demo is True
+        finally:
+            # Restore original
+            settings.tenant_id_override = original_override
+
+    def test_tenant_override_allows_bibbi_endpoint_access(self):
+        """Test that override allows BIBBI endpoints to be accessed from DigitalOcean URLs"""
+        from app.core.config import settings
+        from app.core.bibbi import get_bibbi_tenant_context
+        from app.core.tenant import TenantContextManager
+
+        # Simulate DigitalOcean deployment with TENANT_ID_OVERRIDE=bibbi
+        original_override = settings.tenant_id_override
+        settings.tenant_id_override = "bibbi"
+
+        try:
+            # Get tenant context (simulates middleware behavior)
+            tenant_context = TenantContextManager.get_bibbi_context()
+
+            # Attempt to validate BIBBI tenant context (simulates endpoint dependency)
+            result = get_bibbi_tenant_context(tenant_context)
+
+            # Should NOT raise BibbιTenantError
+            assert result.tenant_id == "bibbi"
+
+        finally:
+            # Restore original
+            settings.tenant_id_override = original_override
+
+
+# ============================================
 # COMPREHENSIVE SECURITY AUDIT
 # ============================================
 

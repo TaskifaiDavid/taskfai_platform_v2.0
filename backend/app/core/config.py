@@ -70,6 +70,12 @@ class Settings(BaseSettings):
     allowed_extensions_str: str = ".xlsx,.xls,.csv"  # Comma-separated for env vars
     upload_dir: str = "/tmp/uploads"
 
+    # Tenant Configuration
+    # Override subdomain-based tenant detection (useful for DigitalOcean deployments)
+    # Set to "demo", "bibbi", or custom tenant_id to force specific tenant context
+    # If not set, tenant is detected from subdomain (default behavior)
+    tenant_id_override: Optional[str] = None
+
     # BIBBI Configuration (Reseller Upload System)
     # This system is designed for tenant_id='bibbi' ONLY
     bibbi_tenant_id: str = "bibbi"

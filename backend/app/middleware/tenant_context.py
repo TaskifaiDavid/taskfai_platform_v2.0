@@ -56,7 +56,37 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
         if request.url.path in skip_paths:
             return await call_next(request)
 
-        # Extract subdomain from hostname
+        # Check for tenant override (production deployments)
+        # This allows forcing a specific tenant_id regardless of URL detection
+        # Useful for DigitalOcean deployments where URLs don't follow subdomain pattern
+        if settings.tenant_id_override:
+            print(f"[TenantContextMiddleware] Using TENANT_ID_OVERRIDE: {settings.tenant_id_override}")
+
+            if settings.tenant_id_override == "bibbi":
+                request.state.tenant = TenantContextManager.get_bibbi_context()
+                print(f"[TenantContextMiddleware] Set BIBBI tenant via override: {request.state.tenant}")
+            elif settings.tenant_id_override == "demo":
+                request.state.tenant = TenantContextManager.get_demo_context()
+                print(f"[TenantContextMiddleware] Set demo tenant via override: {request.state.tenant}")
+            else:
+                # Custom tenant - lookup from registry
+                try:
+                    print(f"[TenantContextMiddleware] Looking up custom tenant: {settings.tenant_id_override}")
+                    tenant_context = await self.tenant_manager.from_subdomain(settings.tenant_id_override)
+                    request.state.tenant = tenant_context
+                    print(f"[TenantContextMiddleware] Set custom tenant via override: {tenant_context}")
+                except ValueError as e:
+                    print(f"[TenantContextMiddleware] Override tenant not found: {e}")
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail=f"Tenant override error: {str(e)}"
+                    )
+
+            # Continue to next handler with overridden tenant
+            response = await call_next(request)
+            return response
+
+        # Extract subdomain from hostname (default behavior when no override)
         hostname = request.headers.get("host", "").split(":")[0]
         subdomain = TenantContextManager.extract_subdomain(hostname)
 
