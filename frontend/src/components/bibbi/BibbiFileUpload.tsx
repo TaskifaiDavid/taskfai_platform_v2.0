@@ -10,7 +10,7 @@ export function BibbiFileUpload() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [selectedReseller, setSelectedReseller] = useState<string>('')
   const uploadMutation = useBibbiUploadFile()
-  const { data: resellersData, isLoading: isLoadingResellers } = useBibbiResellers()
+  const { data: resellersData } = useBibbiResellers()
 
   // Mock resellers for now since endpoint doesn't exist yet
   const mockResellers = [

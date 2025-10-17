@@ -40,15 +40,6 @@ const STATUS_COLORS = {
   partial: 'text-orange-500',
 }
 
-const STATUS_BG_COLORS = {
-  pending: 'bg-yellow-500/10 border-yellow-500/50',
-  processing: 'bg-blue-500/10 border-blue-500/50',
-  validated: 'bg-green-500/10 border-green-500/50',
-  completed: 'bg-green-500/10 border-green-500/50',
-  failed: 'bg-red-500/10 border-red-500/50',
-  partial: 'bg-orange-500/10 border-orange-500/50',
-}
-
 export function BibbiUploadHistory({ onViewDetails, selectedUploadId }: BibbiUploadHistoryProps) {
   const [statusFilter, setStatusFilter] = useState<string>('')
   const { data, isLoading } = useBibbiUploadsList(statusFilter)

@@ -39,7 +39,7 @@ export function BibbiUploadDetail({ uploadId, onClose }: BibbiUploadDetailProps)
   const processedRows = upload.processed_rows || 0
   const failedRows = upload.failed_rows || 0
   const duplicatedRows = upload.duplicated_rows || 0
-  const successRate = totalRows > 0 ? ((processedRows / totalRows) * 100).toFixed(1) : 0
+  const successRate = totalRows > 0 ? ((processedRows / totalRows) * 100).toFixed(1) : "0"
 
   return (
     <Card className="p-6 border-2">
