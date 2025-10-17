@@ -18,6 +18,7 @@ import { Settings } from '@/pages/Settings'
 import { MFASettings } from '@/pages/MFASettings'
 import { TenantList } from '@/pages/TenantList'
 import { TenantOnboarding } from '@/pages/TenantOnboarding'
+import { BibbiUploads } from '@/pages/BibbiUploads'
 
 function AppRoutes() {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
@@ -43,6 +44,7 @@ function AppRoutes() {
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="dashboard/builder" element={<DashboardBuilder />} />
         <Route path="uploads" element={<Uploads />} />
+        <Route path="bibbi/uploads" element={<BibbiUploads />} />
         <Route path="chat" element={<Chat />} />
         <Route path="analytics" element={<Analytics />} />
         <Route path="dashboards" element={<Dashboards />} />

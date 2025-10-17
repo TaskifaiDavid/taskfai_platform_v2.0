@@ -9,6 +9,7 @@ from fastapi import Request, HTTPException, status
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
+from app.core.config import settings
 from app.core.tenant import TenantContextManager, TenantContext
 
 
@@ -64,10 +65,15 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
         # For demo/localhost/app, always use demo context without database lookup
         # This ensures local development works even if tenant registry is not set up
         # "app" subdomain is the central login portal at app.taskifai.com
+        # "bibbi" subdomain is for local testing of BIBBI tenant features
         if subdomain in ("demo", "localhost", "app", None):
             print(f"[TenantContextMiddleware] Using demo context for subdomain: {subdomain}")
             request.state.tenant = TenantContextManager.get_demo_context()
             print(f"[TenantContextMiddleware] Set demo tenant: {request.state.tenant}")
+        elif subdomain == "bibbi":
+            print(f"[TenantContextMiddleware] Using BIBBI context for local testing")
+            request.state.tenant = TenantContextManager.get_bibbi_context()
+            print(f"[TenantContextMiddleware] Set BIBBI tenant: {request.state.tenant}")
         else:
             # Production tenant - lookup from registry
             try:
@@ -84,14 +90,24 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
                     detail=f"Tenant error: {str(e)}"
                 )
             except Exception as e:
-                # Other errors (database, etc.) - fallback to demo for development
+                # Other errors (database, etc.)
                 print(f"[TenantContextMiddleware] Exception: {e}")
                 import traceback
                 traceback.print_exc()
 
-                # Fallback to demo context for development
-                print(f"[TenantContextMiddleware] Falling back to demo context due to error")
-                request.state.tenant = TenantContextManager.get_demo_context()
+                # SECURITY: Only fallback to demo in development mode
+                # In production, reject requests to prevent tenant bypass attacks
+                if settings.debug:
+                    # Development mode - fallback to demo for convenience
+                    print(f"[TenantContextMiddleware] DEBUG mode: Falling back to demo context")
+                    request.state.tenant = TenantContextManager.get_demo_context()
+                else:
+                    # Production mode - reject request to prevent bypass
+                    print(f"[TenantContextMiddleware] PRODUCTION mode: Rejecting request due to tenant resolution error")
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail="Tenant service temporarily unavailable. Please try again later."
+                    )
 
         # Continue to next handler
         response = await call_next(request)

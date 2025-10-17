@@ -85,3 +85,4 @@ logger.info("✅ Celery broker configuration applied with SSL and retry logic")
 
 # Import tasks (this registers them with Celery)
 from app.workers import tasks  # noqa
+from app.workers import bibbi_tasks  # noqa - BIBBI reseller upload tasks
