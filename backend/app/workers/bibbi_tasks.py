@@ -1,9 +1,17 @@
 """
 BIBBI Celery Background Tasks
 
-Async processing for BIBBI reseller Excel uploads with full pipeline integration.
+⚠️  DEPRECATED: This worker is deprecated as of 2025-01-18
+Use app.workers.unified_tasks.process_unified_upload instead
 
-Pipeline Flow:
+This file is kept for reference and rollback capability only.
+It will be removed in a future release.
+
+Migration Path:
+- Old: app.workers.bibbi_tasks.process_bibbi_upload
+- New: app.workers.unified_tasks.process_unified_upload (with reseller_id parameter)
+
+Original Pipeline Flow:
 1. Staging - Extract file metadata
 2. Detection - Identify vendor/reseller
 3. Routing - Route to appropriate processor
@@ -12,8 +20,6 @@ Pipeline Flow:
 6. Validation - 4-layer validation
 7. Insertion - Batch insert into sales_unified
 8. Status Update - Update upload record
-
-Task: process_bibbi_upload
 """
 
 import os

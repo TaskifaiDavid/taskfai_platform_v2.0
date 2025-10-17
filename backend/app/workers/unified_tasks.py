@@ -1,18 +1,18 @@
 """
 Unified Upload Processing Tasks
 
-Consolidates demo and BIBBI upload processing into a single intelligent system.
-Supports both D2C (demo) and B2B (BIBBI reseller) workflows.
+Single worker for processing both D2C (demo) and B2B (BIBBI reseller) uploads.
+Uses shared upload_pipeline utilities to eliminate code duplication.
+
+Refactored from 3 separate worker files (tasks.py, bibbi_tasks.py, unified_tasks.py)
+to reduce code duplication and improve maintainability.
 """
 
-import base64
-import hashlib
-import os
-import traceback
 from datetime import datetime
 from typing import Dict, Any, Optional
 
 from app.workers.celery_app import celery_app
+from app.workers.upload_pipeline import upload_pipeline, UploadContext
 
 
 @celery_app.task(bind=True, name="app.workers.unified_tasks.process_unified_upload")
@@ -31,7 +31,6 @@ def process_unified_upload(
     Routes to appropriate processor based on context:
     - BIBBI processor if reseller_id provided (B2B reseller data)
     - Demo processor if tenant_id='demo' and no reseller_id (D2C data)
-    - Intelligent detection + routing for ambiguous cases
 
     Args:
         batch_id: Upload batch identifier
@@ -44,260 +43,167 @@ def process_unified_upload(
     Returns:
         Dict containing processing results and status
     """
-    # LAZY IMPORTS: Load heavy dependencies only when task executes
+    # Create upload context
+    context = UploadContext(
+        batch_id=batch_id,
+        user_id=user_id,
+        filename=filename,
+        tenant_id=tenant_id,
+        reseller_id=reseller_id
+    )
+
+    print(f"[Unified] Processing batch={batch_id}, file={filename}, reseller_id={reseller_id}, tenant={tenant_id}")
+
+    # Route to appropriate processor based on context
+    if reseller_id:
+        # BIBBI reseller upload - B2B processing
+        print(f"[Unified] Routing to BIBBI processor for reseller: {reseller_id}")
+        processor_fn = lambda ctx: _process_bibbi(ctx)
+    else:
+        # Demo D2C upload - standard ecommerce processing
+        print(f"[Unified] Routing to demo processor for tenant: {tenant_id}")
+        processor_fn = lambda ctx: _process_demo(ctx)
+
+    # Execute pipeline
+    return upload_pipeline.process_upload(
+        context=context,
+        file_content_b64=file_content_b64,
+        processor_fn=processor_fn
+    )
+
+
+def _process_demo(context: UploadContext) -> Dict[str, Any]:
+    """
+    Process demo D2C upload (online sales data)
+
+    Uses demo-specific processors for standard ecommerce data.
+    Inserts directly into ecommerce_orders table.
+
+    Args:
+        context: Upload context with file path and vendor
+
+    Returns:
+        Processing result dictionary
+    """
+    # LAZY IMPORT: Load only when executing demo path
     from app.core.dependencies import get_supabase_client
-    from app.services.vendors.detector import vendor_detector
 
-    print(f"[UnifiedUpload] Processing batch_id={batch_id}, filename={filename}, reseller_id={reseller_id}, tenant_id={tenant_id}")
+    print(f"[Demo] Processing vendor={context.detected_vendor}")
 
-    try:
-        # Decode file content
-        file_content = base64.b64decode(file_content_b64)
+    # Get processor instance
+    processor = upload_pipeline.get_demo_processor(context.detected_vendor)
 
-        # Save temporary file for processing
-        temp_dir = "/tmp/taskifai_uploads"
-        os.makedirs(temp_dir, exist_ok=True)
+    # Process file
+    print(f"[Demo] Processing file with {context.detected_vendor} processor")
+    processed_records = processor.process(context.file_path, context.user_id)
+    print(f"[Demo] Processed {len(processed_records)} records")
 
-        file_hash = hashlib.md5(file_content).hexdigest()
-        file_path = os.path.join(temp_dir, f"{file_hash}_{filename}")
+    # Insert into ecommerce_orders table
+    supabase = get_supabase_client()
 
-        with open(file_path, 'wb') as f:
-            f.write(file_content)
+    if processed_records:
+        result = supabase.table("ecommerce_orders").insert(processed_records).execute()
+        inserted_count = len(result.data) if result.data else 0
+        print(f"[Demo] Inserted {inserted_count} orders")
+    else:
+        inserted_count = 0
 
-        print(f"[UnifiedUpload] Saved temp file: {file_path}")
+    # Update batch status
+    upload_pipeline.update_batch_status(
+        batch_id=context.batch_id,
+        status="completed",
+        records_processed=len(processed_records),
+        vendor_name=context.detected_vendor
+    )
 
-        # Detect vendor format
-        detected_vendor, confidence = vendor_detector.detect_vendor(file_path, filename)
-        print(f"[UnifiedUpload] Detected vendor: {detected_vendor} (confidence: {confidence})")
+    print(f"[Demo] Processing complete")
 
-        if not detected_vendor:
-            raise Exception(f"Unable to detect vendor from file. Confidence: {confidence}")
-
-        # Route to appropriate processor based on context
-        if reseller_id:
-            # BIBBI reseller upload - route to BIBBI processor
-            print(f"[UnifiedUpload] Routing to BIBBI processor for reseller: {reseller_id}")
-            return _process_bibbi_upload(
-                batch_id=batch_id,
-                file_path=file_path,
-                detected_vendor=detected_vendor,
-                reseller_id=reseller_id,
-                tenant_id=tenant_id
-            )
-        else:
-            # Demo D2C upload - route to demo processor
-            print(f"[UnifiedUpload] Routing to demo processor for tenant: {tenant_id}")
-            return _process_demo_upload(
-                batch_id=batch_id,
-                user_id=user_id,
-                file_path=file_path,
-                filename=filename,
-                detected_vendor=detected_vendor
-            )
-
-    except Exception as e:
-        error_msg = f"Upload processing failed: {str(e)}"
-        print(f"[UnifiedUpload] ERROR: {error_msg}")
-        traceback.print_exc()
-
-        # Update batch status to failed
-        try:
-            supabase = get_supabase_client()
-            supabase.table("upload_batches").update({
-                "processing_status": "failed",
-                "error_message": error_msg,
-                "processed_at": datetime.utcnow().isoformat()
-            }).eq("upload_batch_id", batch_id).execute()
-        except Exception as update_error:
-            print(f"[UnifiedUpload] Failed to update batch status: {update_error}")
-
-        raise
+    return {
+        "status": "completed",
+        "records_processed": len(processed_records),
+        "records_inserted": inserted_count,
+        "vendor": context.detected_vendor
+    }
 
 
-def _process_bibbi_upload(
-    batch_id: str,
-    file_path: str,
-    detected_vendor: str,
-    reseller_id: str,
-    tenant_id: str
-) -> Dict[str, Any]:
+def _process_bibbi(context: UploadContext) -> Dict[str, Any]:
     """
     Process BIBBI reseller upload (B2B data)
 
     Uses BIBBI-specific services for validation, staging, and insertion.
+    Full 8-phase pipeline: staging → detection → routing → processing →
+    store creation → validation → insertion → status update
+
+    Args:
+        context: Upload context with file path and vendor
+
+    Returns:
+        Processing result dictionary
     """
-    # LAZY IMPORT: Load BIBBI services only when needed
+    # LAZY IMPORT: Load BIBBI services only when executing BIBBI path
     from app.services.bibbi import (
         get_staging_service,
-        route_bibbi_vendor,
         get_validation_service,
         get_error_report_service,
         get_store_service,
         get_sales_insertion_service,
     )
 
-    print(f"[BIBBI] Processing vendor={detected_vendor}, reseller={reseller_id}")
+    print(f"[BIBBI] Processing vendor={context.detected_vendor}, reseller={context.reseller_id}")
 
-    try:
-        # 1. Route to vendor-specific processor
-        processor = route_bibbi_vendor(detected_vendor)
-        if not processor:
-            raise Exception(f"No BIBBI processor available for vendor: {detected_vendor}")
+    # Get processor instance
+    processor = upload_pipeline.get_bibbi_processor(context.detected_vendor)
 
-        # 2. Parse file with vendor processor
-        print(f"[BIBBI] Parsing file with {detected_vendor} processor")
-        parsed_records = processor.process(file_path, reseller_id, tenant_id)
-        print(f"[BIBBI] Parsed {len(parsed_records)} records")
+    # Process file with vendor processor
+    print(f"[BIBBI] Parsing file with {context.detected_vendor} processor")
+    parsed_records = processor.process(context.file_path, context.reseller_id, context.tenant_id)
+    print(f"[BIBBI] Parsed {len(parsed_records)} records")
 
-        # 3. Stage records
-        staging_service = get_staging_service()
-        staging_service.clear_staging(batch_id)
-        staging_service.stage_records(batch_id, parsed_records)
-        print(f"[BIBBI] Staged {len(parsed_records)} records")
+    # Stage records
+    staging_service = get_staging_service()
+    staging_service.clear_staging(context.batch_id)
+    staging_service.stage_records(context.batch_id, parsed_records)
+    print(f"[BIBBI] Staged {len(parsed_records)} records")
 
-        # 4. Validate records
-        validation_service = get_validation_service()
-        validation_results = validation_service.validate_batch(batch_id)
-        print(f"[BIBBI] Validation: {validation_results['valid_count']} valid, {validation_results['error_count']} errors")
+    # Validate records
+    validation_service = get_validation_service()
+    validation_results = validation_service.validate_batch(context.batch_id)
+    print(f"[BIBBI] Validation: {validation_results['valid_count']} valid, {validation_results['error_count']} errors")
 
-        # 5. Generate error report if needed
-        if validation_results['error_count'] > 0:
-            error_report_service = get_error_report_service()
-            error_report = error_report_service.generate_report(batch_id)
-            print(f"[BIBBI] Generated error report with {len(error_report)} issues")
+    # Generate error report if needed
+    if validation_results['error_count'] > 0:
+        error_report_service = get_error_report_service()
+        error_report = error_report_service.generate_report(context.batch_id)
+        print(f"[BIBBI] Generated error report with {len(error_report)} issues")
 
-        # 6. Store valid records in permanent tables
-        store_service = get_store_service()
-        stored_count = store_service.store_valid_records(batch_id)
-        print(f"[BIBBI] Stored {stored_count} valid records")
+    # Store valid records in permanent tables
+    store_service = get_store_service()
+    stored_count = store_service.store_valid_records(context.batch_id)
+    print(f"[BIBBI] Stored {stored_count} valid records")
 
-        # 7. Insert sales data
-        sales_service = get_sales_insertion_service()
-        sales_count = sales_service.insert_sales_from_batch(batch_id)
-        print(f"[BIBBI] Inserted {sales_count} sales records")
+    # Insert sales data
+    sales_service = get_sales_insertion_service()
+    sales_count = sales_service.insert_sales_from_batch(context.batch_id)
+    print(f"[BIBBI] Inserted {sales_count} sales records")
 
-        # 8. Update batch status
-        from app.core.dependencies import get_supabase_client
-        supabase = get_supabase_client()
+    # Determine final status
+    final_status = "completed" if validation_results['error_count'] == 0 else "completed_with_errors"
 
-        final_status = "completed" if validation_results['error_count'] == 0 else "completed_with_errors"
+    # Update batch status
+    upload_pipeline.update_batch_status(
+        batch_id=context.batch_id,
+        status=final_status,
+        records_processed=len(parsed_records),
+        records_valid=validation_results['valid_count'],
+        records_invalid=validation_results['error_count']
+    )
 
-        supabase.table("upload_batches").update({
-            "processing_status": final_status,
-            "processed_at": datetime.utcnow().isoformat(),
-            "records_processed": len(parsed_records),
-            "records_valid": validation_results['valid_count'],
-            "records_invalid": validation_results['error_count']
-        }).eq("upload_batch_id", batch_id).execute()
+    print(f"[BIBBI] Processing complete: {final_status}")
 
-        print(f"[BIBBI] Processing complete: {final_status}")
-
-        return {
-            "status": final_status,
-            "records_processed": len(parsed_records),
-            "records_valid": validation_results['valid_count'],
-            "records_invalid": validation_results['error_count'],
-            "sales_inserted": sales_count
-        }
-
-    except Exception as e:
-        error_msg = f"BIBBI processing failed: {str(e)}"
-        print(f"[BIBBI] ERROR: {error_msg}")
-        traceback.print_exc()
-
-        # Update batch status
-        from app.core.dependencies import get_supabase_client
-        supabase = get_supabase_client()
-        supabase.table("upload_batches").update({
-            "processing_status": "failed",
-            "error_message": error_msg,
-            "processed_at": datetime.utcnow().isoformat()
-        }).eq("upload_batch_id", batch_id).execute()
-
-        raise
-
-
-def _process_demo_upload(
-    batch_id: str,
-    user_id: str,
-    file_path: str,
-    filename: str,
-    detected_vendor: str
-) -> Dict[str, Any]:
-    """
-    Process demo D2C upload (online sales data)
-
-    Uses demo-specific processors for standard ecommerce data.
-    """
-    # LAZY IMPORT: Load demo services only when needed
-    from app.core.dependencies import get_supabase_client
-    from app.services.vendors.demo_processor import DemoProcessor
-    from app.services.vendors.online_processor import OnlineProcessor
-    from app.services.vendors.boxnox_processor import BoxnoxProcessor
-
-    print(f"[Demo] Processing vendor={detected_vendor}")
-
-    try:
-        # Route to appropriate demo processor
-        if detected_vendor == "demo":
-            processor = DemoProcessor()
-        elif detected_vendor == "online":
-            processor = OnlineProcessor()
-        elif detected_vendor == "boxnox":
-            processor = BoxnoxProcessor()
-        else:
-            raise Exception(f"No demo processor available for vendor: {detected_vendor}")
-
-        # Process file
-        print(f"[Demo] Processing with {detected_vendor} processor")
-        processed_records = processor.process(file_path, user_id)
-        print(f"[Demo] Processed {len(processed_records)} records")
-
-        # Insert into ecommerce_orders table
-        supabase = get_supabase_client()
-
-        if processed_records:
-            result = supabase.table("ecommerce_orders").insert(processed_records).execute()
-            inserted_count = len(result.data) if result.data else 0
-            print(f"[Demo] Inserted {inserted_count} orders")
-        else:
-            inserted_count = 0
-
-        # Update batch status
-        supabase.table("upload_batches").update({
-            "processing_status": "completed",
-            "processed_at": datetime.utcnow().isoformat(),
-            "records_processed": len(processed_records),
-            "vendor_name": detected_vendor
-        }).eq("upload_batch_id", batch_id).execute()
-
-        print(f"[Demo] Processing complete")
-
-        # Clean up temp file
-        try:
-            os.remove(file_path)
-            print(f"[Demo] Cleaned up temp file: {file_path}")
-        except Exception as cleanup_error:
-            print(f"[Demo] Failed to clean up temp file: {cleanup_error}")
-
-        return {
-            "status": "completed",
-            "records_processed": len(processed_records),
-            "records_inserted": inserted_count,
-            "vendor": detected_vendor
-        }
-
-    except Exception as e:
-        error_msg = f"Demo processing failed: {str(e)}"
-        print(f"[Demo] ERROR: {error_msg}")
-        traceback.print_exc()
-
-        # Update batch status
-        supabase = get_supabase_client()
-        supabase.table("upload_batches").update({
-            "processing_status": "failed",
-            "error_message": error_msg,
-            "processed_at": datetime.utcnow().isoformat()
-        }).eq("upload_batch_id", batch_id).execute()
-
-        raise
+    return {
+        "status": final_status,
+        "records_processed": len(parsed_records),
+        "records_valid": validation_results['valid_count'],
+        "records_invalid": validation_results['error_count'],
+        "sales_inserted": sales_count
+    }

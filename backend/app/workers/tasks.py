@@ -1,5 +1,15 @@
 """
 Celery background tasks
+
+⚠️  DEPRECATED: This worker is deprecated as of 2025-01-18
+Use app.workers.unified_tasks.process_unified_upload instead
+
+This file is kept for reference and rollback capability only.
+It will be removed in a future release.
+
+Migration Path:
+- Old: app.workers.tasks.process_upload
+- New: app.workers.unified_tasks.process_unified_upload
 """
 
 import traceback

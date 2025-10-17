@@ -105,10 +105,18 @@ logger.info("✅ Celery broker configuration applied with SSL and retry logic")
 # NEW APPROACH (Lazy Loading via include):
 celery_app.conf.update(
     include=[
-        'app.workers.tasks',
-        'app.workers.bibbi_tasks',
+        # ============================================
+        # DEPRECATED WORKERS - Kept for rollback capability
+        # ============================================
+        # 'app.workers.tasks',          # DEPRECATED: Use unified_tasks instead
+        # 'app.workers.bibbi_tasks',    # DEPRECATED: Use unified_tasks instead
+
+        # ============================================
+        # ACTIVE WORKER - Single unified processor
+        # ============================================
         'app.workers.unified_tasks',  # Unified upload processor (merges demo + BIBBI)
     ]
 )
 
 logger.info("✅ Celery task modules registered for lazy loading")
+logger.info("⚠️  Note: tasks.py and bibbi_tasks.py are deprecated (use unified_tasks)")
