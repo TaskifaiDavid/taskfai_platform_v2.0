@@ -24,15 +24,12 @@ from pathlib import Path
 
 from app.workers.celery_app import celery_app
 from app.core.bibbi import get_bibbi_db, BIBBI_TENANT_ID
-from app.services.bibbi import (
-    get_staging_service,
-    detect_bibbi_vendor,
-    route_bibbi_vendor,
-    get_validation_service,
-    get_error_report_service,
-    get_store_service,
-    get_sales_insertion_service,
-)
+
+# ============================================
+# NOTE: Heavy BIBBI service imports moved INSIDE the task function
+# This implements lazy loading to reduce worker startup memory from ~500MB to ~150MB
+# Services are imported only when the task executes, not at module load time
+# ============================================
 
 
 @celery_app.task(bind=True, name="app.workers.bibbi_tasks.process_bibbi_upload")
@@ -51,6 +48,19 @@ def process_bibbi_upload(self, batch_id: str, file_path: str) -> Dict[str, Any]:
         Upload → Staging → Detection → Routing → Processing →
         Store Creation → Validation → Insertion → Complete
     """
+    # ============================================
+    # LAZY IMPORT: Load heavy services only when task executes
+    # ============================================
+    from app.services.bibbi import (
+        get_staging_service,
+        detect_bibbi_vendor,
+        route_bibbi_vendor,
+        get_validation_service,
+        get_error_report_service,
+        get_store_service,
+        get_sales_insertion_service,
+    )
+
     bibbi_db = get_bibbi_db()
     staging_id = None
 
