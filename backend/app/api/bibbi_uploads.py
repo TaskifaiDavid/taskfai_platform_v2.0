@@ -59,6 +59,16 @@ class UploadStatusResponse(BaseModel):
     updated_at: Optional[str] = None
 
 
+class ResellerResponse(BaseModel):
+    """Response for reseller information"""
+    reseller_id: str
+    reseller_name: str
+    country: Optional[str] = None
+    currency: Optional[str] = None
+    is_active: bool
+    created_at: str
+
+
 def calculate_file_hash(file_content: bytes) -> str:
     """Calculate SHA256 hash of file content"""
     return hashlib.sha256(file_content).hexdigest()
@@ -215,10 +225,10 @@ async def upload_bibbi_file(
             detail=f"Failed to save file: {str(e)}"
         )
 
-    # Validate reseller exists (use underlying client - resellers table doesn't have text tenant_id)
+    # Validate reseller exists (use underlying client - resellers table uses service_key)
     try:
         reseller_check = bibbi_db.client.table("resellers")\
-            .select("reseller_id")\
+            .select("reseller_id, name, country")\
             .eq("reseller_id", reseller_id)\
             .execute()
 
@@ -477,4 +487,64 @@ async def retry_failed_upload(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retry upload: {str(e)}"
+        )
+
+
+@router.get("/resellers", response_model=list[ResellerResponse])
+async def list_resellers(
+    current_user: dict = Depends(get_current_user),
+    bibbi_tenant: BibbιTenant = Depends(get_bibbi_tenant_context),
+    bibbi_db: BibbιDB = Depends(get_bibbi_supabase_client)
+):
+    """
+    List all active BIBBI resellers
+
+    **Tenant Isolation**: This endpoint ONLY returns resellers for tenant_id='bibbi'
+
+    **Supported Resellers**:
+    - Aromateque (Ukraine)
+    - Boxnox (Spain)
+    - Creme de la Creme (Balticum)
+    - Galilu (Poland)
+    - Liberty (England)
+    - Selfridges (England)
+    - Skins NL (Netherlands)
+    - Skins SA (South Africa)
+
+    Args:
+        bibbi_tenant: BIBBI tenant context (auto-validated)
+        bibbi_db: BIBBI-specific database client (auto-filtered)
+
+    Returns:
+        List of active resellers with IDs, names, and countries
+
+    Raises:
+        500 Internal Server Error: Database query failed
+    """
+    try:
+        # Query resellers table (TaskifAI tenant registry)
+        result = bibbi_db.client.table("resellers")\
+            .select("reseller_id, name, country, created_at")\
+            .order("name")\
+            .execute()
+
+        # Transform database response to match frontend interface
+        resellers = [
+            {
+                "reseller_id": row["reseller_id"],
+                "reseller_name": row["name"],
+                "country": row.get("country"),
+                "currency": None,  # Not in TaskifAI schema
+                "is_active": True,  # All resellers in table are active
+                "created_at": row.get("created_at", datetime.utcnow().isoformat())
+            }
+            for row in result.data
+        ]
+
+        return resellers
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list resellers: {str(e)}"
         )
