@@ -70,6 +70,20 @@ class Settings(BaseSettings):
     allowed_extensions_str: str = ".xlsx,.xls,.csv"  # Comma-separated for env vars
     upload_dir: str = "/tmp/uploads"
 
+    # BIBBI Configuration (Reseller Upload System)
+    # This system is designed for tenant_id='bibbi' ONLY
+    bibbi_tenant_id: str = "bibbi"
+    bibbi_enabled: bool = True  # Set to False to disable BIBBI features
+    bibbi_max_file_size: int = 50 * 1024 * 1024  # 50MB for reseller Excel files
+    bibbi_allowed_extensions_str: str = ".xlsx,.xls"  # Only Excel for reseller data
+    bibbi_upload_dir: str = "/tmp/bibbi_uploads"
+    bibbi_concurrent_uploads: int = 4  # Max simultaneous file processing
+
+    @property
+    def bibbi_allowed_extensions(self) -> list[str]:
+        """Parse comma-separated BIBBI extensions into list"""
+        return [ext.strip() for ext in self.bibbi_allowed_extensions_str.split(",")]
+
     # CORS (stored as comma-separated string for DigitalOcean env vars)
     # Pydantic v2 tries to JSON parse list[str], but env vars are plain comma-separated strings
     allowed_origins_str: str = "http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:5173"

@@ -46,3 +46,8 @@ FIXES_*.md
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Tenant provisioning (contains sensitive credentials)
+backend/scripts/tenants_to_add.md
+backend/scripts/add_tenants.sql
+backend/scripts/*_tenants.sql

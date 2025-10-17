@@ -3,10 +3,14 @@ TaskifAI - Sales Data Analytics Platform
 Main FastAPI Application
 """
 
+import os
+from pathlib import Path
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from supabase import create_client
 
-from app.api import auth, uploads, chat, dashboards, analytics, admin, dashboard_config
+from app.api import auth, uploads, chat, dashboards, analytics, admin, dashboard_config, bibbi_uploads, bibbi_product_mappings
 from app.core.config import settings
 from app.core.tenant import TenantContextManager
 from app.middleware.tenant_context import TenantContextMiddleware
@@ -48,6 +52,56 @@ app.add_middleware(AuthMiddleware)
 # 3. Tenant Context - extracts subdomain and resolves tenant (executes FIRST)
 app.add_middleware(TenantContextMiddleware)
 
+# Startup event for environment validation
+@app.on_event("startup")
+async def startup_event():
+    """Validate environment on startup"""
+    print("[Startup] Validating environment...")
+
+    # Validate BIBBI configuration if enabled
+    if settings.bibbi_enabled:
+        print(f"[Startup] BIBBI system enabled for tenant: {settings.bibbi_tenant_id}")
+
+        # Create BIBBI upload directory if it doesn't exist
+        bibbi_upload_dir = Path(settings.bibbi_upload_dir)
+        if not bibbi_upload_dir.exists():
+            print(f"[Startup] Creating BIBBI upload directory: {bibbi_upload_dir}")
+            bibbi_upload_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            print(f"[Startup] BIBBI upload directory exists: {bibbi_upload_dir}")
+
+        # Validate Supabase connection
+        try:
+            supabase = create_client(settings.supabase_url, settings.supabase_service_key)
+
+            # Test query to verify database access
+            # Try to access a common table that should exist
+            test_query = supabase.table("products").select("ean").limit(1).execute()
+            print(f"[Startup] Supabase connection validated ✓")
+
+        except Exception as e:
+            print(f"[Startup] WARNING: Supabase connection test failed: {e}")
+            print(f"[Startup] BIBBI features may not work correctly")
+
+        # Validate required settings
+        required_settings = {
+            "supabase_url": settings.supabase_url,
+            "supabase_service_key": bool(settings.supabase_service_key),
+            "secret_key": bool(settings.secret_key),
+        }
+
+        print(f"[Startup] Required settings validation:")
+        for setting_name, value in required_settings.items():
+            status = "✓" if value else "✗"
+            print(f"[Startup]   {setting_name}: {status}")
+
+        print(f"[Startup] BIBBI system validation complete")
+    else:
+        print("[Startup] BIBBI system disabled")
+
+    print("[Startup] Environment validation complete")
+
+
 # Include routers
 # NOTE: Auth and Admin routers registered twice to handle DigitalOcean App Platform route rewriting:
 # - /api/auth/* and /api/admin/* (local development, direct backend access)
@@ -61,6 +115,10 @@ app.include_router(dashboard_config.router, prefix="/api")
 app.include_router(analytics.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 app.include_router(admin.router)  # Register without /api prefix for production
+
+# BIBBI-specific routers (tenant-isolated reseller upload system)
+app.include_router(bibbi_uploads.router, prefix="/api")
+app.include_router(bibbi_product_mappings.router, prefix="/api")
 
 
 @app.get("/")
