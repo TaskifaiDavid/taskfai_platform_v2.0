@@ -8,7 +8,6 @@ Refactored from 3 separate worker files (tasks.py, bibbi_tasks.py, unified_tasks
 to reduce code duplication and improve maintainability.
 """
 
-from datetime import datetime
 from typing import Dict, Any, Optional
 
 from app.workers.celery_app import celery_app
@@ -58,11 +57,15 @@ def process_unified_upload(
     if reseller_id:
         # BIBBI reseller upload - B2B processing
         print(f"[Unified] Routing to BIBBI processor for reseller: {reseller_id}")
-        processor_fn = lambda ctx: _process_bibbi(ctx)
+
+        def processor_fn(ctx):
+            return _process_bibbi(ctx)
     else:
         # Demo D2C upload - standard ecommerce processing
         print(f"[Unified] Routing to demo processor for tenant: {tenant_id}")
-        processor_fn = lambda ctx: _process_demo(ctx)
+
+        def processor_fn(ctx):
+            return _process_demo(ctx)
 
     # Execute pipeline
     return upload_pipeline.process_upload(
@@ -86,20 +89,20 @@ def _process_demo(context: UploadContext) -> Dict[str, Any]:
         Processing result dictionary
     """
     # LAZY IMPORT: Load only when executing demo path
-    from app.core.dependencies import get_supabase_client
+    from app.core.worker_db import get_worker_supabase_client
 
     print(f"[Demo] Processing vendor={context.detected_vendor}")
 
     # Get processor instance
     processor = upload_pipeline.get_demo_processor(context.detected_vendor)
 
-    # Process file
+    # Process file - FIXED: Add missing batch_id parameter
     print(f"[Demo] Processing file with {context.detected_vendor} processor")
-    processed_records = processor.process(context.file_path, context.user_id)
+    processed_records = processor.process(context.file_path, context.user_id, context.batch_id)
     print(f"[Demo] Processed {len(processed_records)} records")
 
     # Insert into ecommerce_orders table
-    supabase = get_supabase_client()
+    supabase = get_worker_supabase_client(context.tenant_id)
 
     if processed_records:
         result = supabase.table("ecommerce_orders").insert(processed_records).execute()
@@ -112,11 +115,12 @@ def _process_demo(context: UploadContext) -> Dict[str, Any]:
     upload_pipeline.update_batch_status(
         batch_id=context.batch_id,
         status="completed",
+        tenant_id=context.tenant_id,
         records_processed=len(processed_records),
         vendor_name=context.detected_vendor
     )
 
-    print(f"[Demo] Processing complete")
+    print("[Demo] Processing complete")
 
     return {
         "status": "completed",
@@ -193,6 +197,7 @@ def _process_bibbi(context: UploadContext) -> Dict[str, Any]:
     upload_pipeline.update_batch_status(
         batch_id=context.batch_id,
         status=final_status,
+        tenant_id=context.tenant_id,
         records_processed=len(parsed_records),
         records_valid=validation_results['valid_count'],
         records_invalid=validation_results['error_count']

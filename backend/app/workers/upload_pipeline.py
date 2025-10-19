@@ -11,10 +11,9 @@ import os
 import traceback
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, Callable
 
-from app.core.dependencies import get_supabase_client
+from app.core.worker_db import get_worker_supabase_client
 
 
 @dataclass
@@ -137,6 +136,7 @@ class UploadPipeline:
         self,
         batch_id: str,
         status: str,
+        tenant_id: str = "demo",
         **additional_fields
     ) -> None:
         """
@@ -145,10 +145,11 @@ class UploadPipeline:
         Args:
             batch_id: Batch identifier
             status: New status (processing, completed, failed, etc.)
+            tenant_id: Tenant context for database connection
             **additional_fields: Additional fields to update
         """
         try:
-            supabase = get_supabase_client()
+            supabase = get_worker_supabase_client(tenant_id)
 
             update_data = {
                 "processing_status": status,
@@ -202,6 +203,7 @@ class UploadPipeline:
         self.update_batch_status(
             batch_id=context.batch_id,
             status="failed",
+            tenant_id=context.tenant_id,
             error_message=error_msg
         )
 
@@ -315,6 +317,7 @@ class UploadPipeline:
             self.update_batch_status(
                 batch_id=context.batch_id,
                 status="processing",
+                tenant_id=context.tenant_id,
                 vendor_name=context.detected_vendor
             )
 

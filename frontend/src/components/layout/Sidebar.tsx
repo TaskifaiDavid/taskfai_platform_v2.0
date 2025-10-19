@@ -11,7 +11,6 @@ import {
   Shield,
   Sparkles,
   ChevronLeft,
-  Package,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useUIStore } from '@/stores/ui'
@@ -29,10 +28,6 @@ const navigation = [
   { name: 'External Dashboards', href: '/dashboards', icon: Monitor, description: 'External BI tools' },
 ]
 
-const bibbiNavigation = [
-  { name: 'BIBBI Uploads', href: '/bibbi/uploads', icon: Package, description: 'Reseller file uploads', badge: 'BIBBI' },
-]
-
 const adminNavigation = [
   { name: 'Admin', href: '/admin', icon: Shield, description: 'System settings' },
 ]
@@ -41,8 +36,6 @@ export function Sidebar({ className }: SidebarProps) {
   const { user, logout } = useAuth()
   const { sidebarOpen, toggleSidebar } = useUIStore()
   const isAdmin = user?.role === 'admin'
-  const isBibbiTenant = window.location.hostname.startsWith('bibbi.') ||
-                         window.location.hostname === 'localhost' // For development
 
   return (
     <div
@@ -148,63 +141,6 @@ export function Sidebar({ className }: SidebarProps) {
             </NavLink>
           ))}
         </div>
-
-        {/* BIBBI Section (only for bibbi tenant) */}
-        {isBibbiTenant && (
-          <>
-            <div className="my-4 border-t border-[hsl(var(--sidebar-border))]" />
-            <div className="space-y-1">
-              {sidebarOpen && (
-                <p className="px-3 text-xs font-semibold text-[hsl(var(--sidebar-foreground))]/50 uppercase tracking-wider mb-2">
-                  BIBBI System
-                </p>
-              )}
-              {bibbiNavigation.map((item) => (
-                <NavLink
-                  key={item.name}
-                  to={item.href}
-                  title={!sidebarOpen ? item.name : undefined}
-                  className={({ isActive }) =>
-                    cn(
-                      'group flex items-center gap-3 rounded-lg text-sm font-medium transition-all duration-200',
-                      sidebarOpen ? 'px-3 py-3' : 'px-3 py-3 justify-center',
-                      isActive
-                        ? 'bg-gradient-to-r from-accent/20 to-accent/10 text-accent border-l-2 border-accent shadow-sm'
-                        : 'text-[hsl(var(--sidebar-foreground))]/70 hover:bg-[hsl(var(--sidebar-foreground))]/8 hover:text-[hsl(var(--sidebar-foreground))]'
-                    )
-                  }
-                >
-                  {({ isActive }) => (
-                    <>
-                      <item.icon className={cn(
-                        "h-5 w-5 flex-shrink-0 transition-all duration-200",
-                        isActive ? "text-accent scale-110" : "group-hover:scale-110"
-                      )} />
-                      {sidebarOpen && (
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="truncate">{item.name}</span>
-                            {item.badge && (
-                              <span className="px-1.5 py-0.5 text-[10px] font-bold rounded bg-gradient-to-r from-accent to-accent/80 text-white flex-shrink-0 shadow-sm">
-                                {item.badge}
-                              </span>
-                            )}
-                          </div>
-                          <p className={cn(
-                            "text-xs transition-colors truncate mt-0.5",
-                            isActive ? "text-accent/80" : "text-[hsl(var(--sidebar-foreground))]/50"
-                          )}>
-                            {item.description}
-                          </p>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </NavLink>
-              ))}
-            </div>
-          </>
-        )}
 
         {isAdmin && (
           <>
