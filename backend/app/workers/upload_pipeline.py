@@ -400,8 +400,7 @@ class UploadPipeline:
             self.update_batch_status(
                 batch_id=context.batch_id,
                 status="processing",
-                tenant_id=context.tenant_id,
-                vendor_name=context.detected_vendor
+                tenant_id=context.tenant_id
             )
 
             # Execute processor function
