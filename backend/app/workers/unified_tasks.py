@@ -121,8 +121,7 @@ def _process_demo(context: UploadContext) -> Dict[str, Any]:
         batch_id=context.batch_id,
         status="completed",
         tenant_id=context.tenant_id,
-        records_processed=len(processed_records),
-        vendor_name=context.detected_vendor
+        records_processed=len(processed_records)
     )
 
     print("[Demo] Processing complete")
