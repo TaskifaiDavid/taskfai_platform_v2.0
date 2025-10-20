@@ -128,6 +128,61 @@ class UploadPipeline:
         detected_vendor, confidence = vendor_detector.detect_vendor(file_path, filename)
         return detected_vendor, confidence
 
+    def lookup_reseller_for_vendor(self, vendor_name: str, tenant_id: str = "bibbi") -> Optional[str]:
+        """
+        Auto-lookup reseller ID for BIBBI vendors
+
+        For Liberty and other BIBBI resellers, automatically lookup the reseller_id
+        from the BIBBI database to ensure correct routing to BIBBI processor path.
+
+        Args:
+            vendor_name: Detected vendor name (e.g., "liberty", "boxnox")
+            tenant_id: Tenant context for database lookup (default: "bibbi")
+
+        Returns:
+            Reseller UUID if found, None otherwise
+        """
+        # LAZY IMPORT: Load database client only when needed
+        from app.core.worker_db import get_worker_supabase_client
+
+        # Map vendor names to reseller names in database
+        vendor_to_reseller_map = {
+            "liberty": "Liberty",
+            "boxnox": "BOXNOX",
+            "galilu": "Galilu",
+            "skins_sa": "Skins SA",
+            "skins_nl": "Skins NL",
+            "cdlc": "Creme de la creme",
+            "selfridges": "Selfridges",
+            "ukraine": "Aromateque",
+            "online": "woocommerce"
+        }
+
+        reseller_name = vendor_to_reseller_map.get(vendor_name.lower())
+        if not reseller_name:
+            print(f"[Pipeline] No reseller mapping for vendor: {vendor_name}")
+            return None
+
+        try:
+            # Query BIBBI database for reseller
+            supabase = get_worker_supabase_client(tenant_id)
+            result = supabase.table("resellers")\
+                .select("id")\
+                .ilike("reseller", reseller_name)\
+                .execute()
+
+            if result.data and len(result.data) > 0:
+                reseller_id = result.data[0]["id"]
+                print(f"[Pipeline] Found reseller_id={reseller_id} for vendor={vendor_name}")
+                return reseller_id
+            else:
+                print(f"[Pipeline] No reseller found for vendor={vendor_name} (reseller_name={reseller_name})")
+                return None
+
+        except Exception as e:
+            print(f"[Pipeline] Error looking up reseller for {vendor_name}: {e}")
+            return None
+
     # ============================================
     # BATCH STATUS MANAGEMENT
     # ============================================
@@ -234,19 +289,15 @@ class UploadPipeline:
         # LAZY IMPORT: Load processors only when needed
         from app.services.vendors.demo_processor import DemoProcessor
         from app.services.vendors.online_processor import OnlineProcessor
-        from app.services.vendors.boxnox_processor import BoxnoxProcessor
-        from app.services.vendors.liberty_processor import LibertyProcessor
 
         processors = {
             "demo": DemoProcessor,
-            "online": OnlineProcessor,
-            "boxnox": BoxnoxProcessor,
-            "liberty": LibertyProcessor
+            "online": OnlineProcessor
         }
 
         processor_class = processors.get(vendor_name)
         if not processor_class:
-            raise ValueError(f"No demo processor available for vendor: {vendor_name}")
+            raise ValueError(f"No demo processor available for vendor: {vendor_name}. Use BIBBI path for reseller vendors.")
 
         return processor_class()
 
@@ -288,9 +339,10 @@ class UploadPipeline:
         Handles common workflow:
         1. Decode and save file
         2. Detect vendor
-        3. Update batch status to processing
-        4. Execute processor function
-        5. Cleanup
+        3. Auto-lookup reseller for BIBBI vendors (Liberty, Boxnox, etc.)
+        4. Update batch status to processing
+        5. Execute processor function
+        6. Cleanup
 
         Args:
             context: Upload context
@@ -314,6 +366,14 @@ class UploadPipeline:
 
             if not context.detected_vendor:
                 raise Exception(f"Unable to detect vendor from file. Confidence: {context.confidence}")
+
+            # Auto-lookup reseller for BIBBI vendors (if not already set)
+            # This ensures Liberty and other reseller vendors route to BIBBI path
+            if not context.reseller_id:
+                reseller_id = self.lookup_reseller_for_vendor(context.detected_vendor, context.tenant_id)
+                if reseller_id:
+                    context.reseller_id = reseller_id
+                    print(f"[Pipeline] Auto-assigned reseller_id={reseller_id} for vendor={context.detected_vendor}")
 
             # Update batch status to processing
             self.update_batch_status(
