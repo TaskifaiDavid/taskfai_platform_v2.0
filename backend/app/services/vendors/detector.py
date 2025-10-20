@@ -41,9 +41,9 @@ class VendorDetector:
             "required_columns": ["Product", "Total"]
         },
         "liberty": {
-            "filename_keywords": ["liberty"],
-            "sheet_names": ["Sheet1"],
-            "required_columns": ["EAN", "Product", "Sold"]
+            "filename_keywords": ["liberty", "continuity", "supplier size report", "supplier report", "weekly sell"],
+            "sheet_names": ["Sheet1", "Sales", "Sales By Size", "Size Analysis", "Product Group Analysis", "Total", "Total 2023", "Total 2024", "Total 2025", "w."],
+            "required_columns": ["EAN", "Product", "Sold", "Value", "Flagship", "Internet", "Sales Channel", "Warehouse", "Brand", "Weekly", "sku"]
         },
         "selfridges": {
             "filename_keywords": ["selfridges"],
