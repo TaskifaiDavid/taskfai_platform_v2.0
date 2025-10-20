@@ -163,13 +163,14 @@ class LibertyProcessor:
 
         return False
 
-    def process(self, file_path: str, user_id: str) -> List[Dict]:
+    def process(self, file_path: str, user_id: str, batch_id: str) -> List[Dict]:
         """
         Process Liberty Excel file and return list of records for sales_unified table
 
         Args:
             file_path: Path to Liberty Excel file
             user_id: User ID for RLS filtering (not used in sales_unified, tenant-based instead)
+            batch_id: Upload batch identifier for tracking
 
         Returns:
             List of dictionaries ready for sales_unified insertion
