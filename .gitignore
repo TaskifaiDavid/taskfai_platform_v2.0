@@ -34,6 +34,10 @@ logs/
 !backend/test_data/*.csv
 !backend/test_data/*.xlsx
 
+# Demo/sample data directories
+demo xlsx/
+demo_data/
+
 # Claude Code
 .claude/agents/
 CLAUDE.md
