@@ -139,8 +139,11 @@ def _process_bibbi(context: UploadContext) -> Dict[str, Any]:
     """
     Process BIBBI reseller upload (B2B data)
 
-    Currently validates routing and vendor processing only.
-    Full BIBBI pipeline (staging, validation, insertion) to be implemented.
+    Full BIBBI pipeline:
+    1. Parse file with vendor processor
+    2. Create/update store records
+    3. Insert validated sales data into sales_unified
+    4. Update batch status with statistics
 
     Args:
         context: Upload context with file path and vendor
@@ -150,6 +153,8 @@ def _process_bibbi(context: UploadContext) -> Dict[str, Any]:
     """
     # LAZY IMPORT: Load only when executing BIBBI path
     from app.core.worker_db import get_worker_supabase_client
+    from app.services.bibbi.store_service import StoreService
+    from app.services.bibbi.sales_insertion_service import SalesInsertionService
 
     print(f"[BIBBI] Processing vendor={context.detected_vendor}, reseller={context.reseller_id}")
 
@@ -159,11 +164,8 @@ def _process_bibbi(context: UploadContext) -> Dict[str, Any]:
     # Get processor instance
     processor = upload_pipeline.get_bibbi_processor(context.detected_vendor, context.reseller_id)
 
-    # Process file with vendor processor
-    # NOTE: BIBBI processors only need (file_path, batch_id)
-    # reseller_id is already set during processor instantiation
-    # Returns ProcessingResult object, not a list
-    print(f"[BIBBI] Parsing file with {context.detected_vendor} processor")
+    # STEP 1: Parse file with vendor processor
+    print(f"[BIBBI] Step 1: Parsing file with {context.detected_vendor} processor")
     processing_result = processor.process(context.file_path, context.batch_id)
 
     # Extract records from ProcessingResult
@@ -171,33 +173,74 @@ def _process_bibbi(context: UploadContext) -> Dict[str, Any]:
     print(f"[BIBBI] Parsed {len(parsed_records)} records ({processing_result.successful_rows} success, {processing_result.failed_rows} failed)")
     print(f"[BIBBI] Detected {len(processing_result.stores)} stores")
 
-    # TODO: Implement full BIBBI pipeline
-    # - Staging: Stage parsed records
-    # - Validation: Validate records against BIBBI business rules
-    # - Error Reporting: Generate error reports for invalid records
-    # - Store Creation: Create/update store records
-    # - Sales Insertion: Insert validated sales data
+    # STEP 2: Create/update store records
+    print(f"[BIBBI] Step 2: Creating/updating {len(processing_result.stores)} stores")
+    store_service = StoreService(bibbi_db)
 
-    # For now, just mark as completed with routing validation
-    final_status = "completed"
+    created_stores = 0
+    for store_data in processing_result.stores:
+        try:
+            store_service.create_or_update_store(store_data)
+            created_stores += 1
+        except Exception as e:
+            print(f"[BIBBI] Warning: Failed to create store {store_data.get('store_identifier')}: {e}")
 
-    # Update batch status
+    print(f"[BIBBI] Created/updated {created_stores} stores")
+
+    # STEP 3: Insert validated sales data into sales_unified
+    print(f"[BIBBI] Step 3: Inserting {len(parsed_records)} records into sales_unified")
+    insertion_service = SalesInsertionService(bibbi_db)
+
+    try:
+        insertion_result = insertion_service.insert_sales_batch(
+            sales_data=parsed_records,
+            batch_id=context.batch_id,
+            reseller_id=context.reseller_id
+        )
+
+        rows_inserted = insertion_result.get("rows_inserted", 0)
+        rows_duplicate = insertion_result.get("rows_duplicate", 0)
+        rows_failed = insertion_result.get("rows_failed", 0)
+
+        print(f"[BIBBI] Insertion complete: {rows_inserted} inserted, {rows_duplicate} duplicates, {rows_failed} failed")
+
+        final_status = "completed" if rows_failed == 0 else "completed_with_errors"
+
+    except Exception as e:
+        print(f"[BIBBI] ERROR: Sales insertion failed: {e}")
+        import traceback
+        traceback.print_exc()
+
+        rows_inserted = 0
+        rows_duplicate = 0
+        rows_failed = len(parsed_records)
+        final_status = "failed"
+
+    # STEP 4: Update batch status with statistics
     upload_pipeline.update_batch_status(
         batch_id=context.batch_id,
         status=final_status,
         tenant_id=context.tenant_id,
-        records_processed=len(parsed_records),
-        vendor_name=context.detected_vendor
+        rows_processed=processing_result.successful_rows,
+        rows_total=processing_result.total_rows,
+        rows_valid=rows_inserted,
+        rows_invalid=processing_result.failed_rows,
+        rows_inserted=rows_inserted,
+        rows_duplicate=rows_duplicate,
+        parser_class=f"{context.detected_vendor}_processor",
+        parser_version="1.0"
     )
 
-    print(f"[BIBBI] Routing validation complete: {final_status}")
-    print(f"[BIBBI] ✅ Successfully routed {context.detected_vendor} → BIBBI processor")
+    print(f"[BIBBI] ✅ Pipeline complete: {final_status}")
+    print(f"[BIBBI] Summary: {rows_inserted} records inserted into sales_unified")
 
     return {
         "status": final_status,
-        "records_processed": len(parsed_records),
-        "records_parsed": len(parsed_records),
-        "stores_detected": len(processing_result.stores),
-        "vendor": context.detected_vendor,
-        "message": "Routing successful - BIBBI pipeline to be completed"
+        "records_processed": processing_result.successful_rows,
+        "records_total": processing_result.total_rows,
+        "records_inserted": rows_inserted,
+        "records_duplicate": rows_duplicate,
+        "records_failed": rows_failed,
+        "stores_created": created_stores,
+        "vendor": context.detected_vendor
     }

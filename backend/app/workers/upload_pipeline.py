@@ -207,7 +207,7 @@ class UploadPipeline:
             supabase = get_worker_supabase_client(tenant_id)
 
             update_data = {
-                "processing_status": status,
+                "status": status,  # Field name is 'status', not 'processing_status'
                 **additional_fields
             }
 
@@ -215,10 +215,10 @@ class UploadPipeline:
             if status == "processing":
                 update_data["processing_started_at"] = datetime.utcnow().isoformat()
             elif status in ("completed", "completed_with_errors", "failed"):
-                update_data["processed_at"] = datetime.utcnow().isoformat()
+                update_data["processing_completed_at"] = datetime.utcnow().isoformat()  # Field is 'processing_completed_at'
 
-            supabase.table("upload_batches").update(update_data).eq(
-                "upload_batch_id", batch_id
+            supabase.table("uploads").update(update_data).eq(
+                "id", batch_id
             ).execute()
 
         except Exception as e:
