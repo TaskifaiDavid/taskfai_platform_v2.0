@@ -4,8 +4,9 @@ Liberty Processor (BIBBI Version)
 Handles Liberty UK reseller data with special cases:
 1. Duplicate rows: Liberty uses 2 rows per product with same amount
 2. Returns: Parentheses indicate returns (123) = -123
-3. Store identification: "Flagship" = physical, "online" = online
+3. Store identification: "Flagship" = physical, "Internet" = online
 4. Currency: GBP → EUR conversion
+5. Date extraction: Parses sale date from filename (DD_MM_YYYY.xlsx)
 
 Based on: backend/BIBBI/Resellers/resellers_info.md
 """
@@ -13,6 +14,7 @@ Based on: backend/BIBBI/Resellers/resellers_info.md
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 import openpyxl
+import re
 
 from .base import BibbiBseProcessor
 
@@ -72,7 +74,7 @@ class LibertyProcessor(BibbiBseProcessor):
 
             if store_col_idx is None:
                 # No store column - assume single store
-                # Liberty minimum: Flagship + online
+                # Liberty minimum: Flagship + internet
                 stores = [
                     {
                         "store_identifier": "flagship",
@@ -83,7 +85,7 @@ class LibertyProcessor(BibbiBseProcessor):
                         "country": "UK"
                     },
                     {
-                        "store_identifier": "online",
+                        "store_identifier": "internet",
                         "store_name": "Liberty Online",
                         "store_type": "online",
                         "reseller_id": self.reseller_id,
@@ -131,7 +133,7 @@ class LibertyProcessor(BibbiBseProcessor):
                     "country": "UK"
                 },
                 {
-                    "store_identifier": "online",
+                    "store_identifier": "internet",
                     "store_name": "Liberty Online",
                     "store_type": "online",
                     "reseller_id": self.reseller_id,
@@ -209,6 +211,21 @@ class LibertyProcessor(BibbiBseProcessor):
         # Parse store column structure
         store_columns = self._parse_store_columns(sheet)
 
+        # Extract date from filename pattern "Continuity Supplier Size Report DD_MM_YYYY.xlsx"
+        # Example: "27_04_2025.xlsx" -> datetime(2025, 4, 27)
+        file_date = None
+        date_match = re.search(r'(\d{2})_(\d{2})_(\d{4})\.xlsx$', file_path, re.IGNORECASE)
+        if date_match:
+            day, month, year = date_match.groups()
+            try:
+                file_date = datetime(int(year), int(month), int(day))
+                print(f"[Liberty] Extracted date from filename: {file_date.date()}")
+            except ValueError as e:
+                print(f"[Liberty] Invalid date in filename ({day}/{month}/{year}): {e}")
+                file_date = None
+        else:
+            print(f"[Liberty] Could not extract date from filename: {file_path}")
+
         # Read row 3 as headers
         headers = []
         for cell in sheet[3]:  # Row 3 (1-indexed)
@@ -268,7 +285,8 @@ class LibertyProcessor(BibbiBseProcessor):
                             'Item': product_name,
                             'Sales Qty Un': qty_value,
                             'Sales Inc VAT £ ': sales_value,
-                            'store_identifier': store_id  # Add store identifier
+                            'store_identifier': store_id,  # Add store identifier
+                            '_file_date': file_date  # Add extracted date (None if not found)
                         }
 
                         rows.append(store_row)
@@ -416,15 +434,19 @@ class LibertyProcessor(BibbiBseProcessor):
         except ValueError as e:
             raise ValueError(f"Invalid sales amount: {e}")
 
-        # Extract date - Liberty files are named with dates
-        # For now, extract from filename or use current month
-        # TODO: Parse date from filename pattern "Continuity Supplier Size Report DD-MM-YYYY.xlsx"
+        # Extract date from filename (parsed in extract_rows and stored in raw_row)
+        # Fallback to current date if not available
+        file_date = raw_row.get("_file_date")
+        if file_date:
+            sale_date = file_date
+        else:
+            sale_date = datetime.utcnow()
+            print(f"[Liberty] WARNING: No file date found, using current date")
 
-        now = datetime.utcnow()
-        transformed["sale_date"] = now.date().isoformat()
-        transformed["year"] = now.year
-        transformed["month"] = now.month
-        transformed["quarter"] = self._calculate_quarter(now.month)
+        transformed["sale_date"] = sale_date.date().isoformat()
+        transformed["year"] = sale_date.year
+        transformed["month"] = sale_date.month
+        transformed["quarter"] = self._calculate_quarter(sale_date.month)
 
         # Store identification: Use the store_identifier from raw_row
         # This was set during extract_rows based on which store column had the data
