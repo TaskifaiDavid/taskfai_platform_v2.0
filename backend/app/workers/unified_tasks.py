@@ -54,9 +54,11 @@ def process_unified_upload(
     print(f"[Unified] Processing batch={batch_id}, file={filename}, reseller_id={reseller_id}, tenant={tenant_id}")
 
     # Route to appropriate processor based on context
-    if reseller_id:
-        # BIBBI reseller upload - B2B processing
-        print(f"[Unified] Routing to BIBBI processor for reseller: {reseller_id}")
+    # NOTE: reseller_id may be auto-assigned by pipeline for BIBBI vendors
+    if reseller_id or context.reseller_id:
+        # Use reseller_id from context if auto-assigned
+        effective_reseller_id = context.reseller_id or reseller_id
+        print(f"[Unified] ✓ Routing to BIBBI processor for reseller: {effective_reseller_id}")
 
         def processor_fn(ctx):
             return _process_bibbi(ctx)
