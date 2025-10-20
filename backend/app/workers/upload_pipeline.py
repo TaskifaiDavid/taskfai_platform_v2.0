@@ -301,12 +301,13 @@ class UploadPipeline:
 
         return processor_class()
 
-    def get_bibbi_processor(self, vendor_name: str):
+    def get_bibbi_processor(self, vendor_name: str, reseller_id: str):
         """
         Get BIBBI processor instance for vendor
 
         Args:
             vendor_name: Vendor identifier
+            reseller_id: Reseller UUID
 
         Returns:
             Processor instance
@@ -314,10 +315,10 @@ class UploadPipeline:
         Raises:
             ValueError: If no processor available for vendor
         """
-        # LAZY IMPORT: Load BIBBI routing only when needed
-        from app.services.bibbi import route_bibbi_vendor
+        # LAZY IMPORT: Load BIBBI router only when needed
+        from app.services.bibbi.vendor_router import bibbi_vendor_router
 
-        processor = route_bibbi_vendor(vendor_name)
+        processor = bibbi_vendor_router._get_processor(vendor_name, reseller_id)
         if not processor:
             raise ValueError(f"No BIBBI processor available for vendor: {vendor_name}")
 
@@ -327,6 +328,93 @@ class UploadPipeline:
     # PIPELINE EXECUTION
     # ============================================
 
+    def prepare_context(
+        self,
+        context: UploadContext,
+        file_content_b64: str
+    ) -> UploadContext:
+        """
+        Prepare upload context with vendor detection and reseller lookup
+
+        Phase 1 of pipeline execution:
+        1. Decode and save file
+        2. Detect vendor
+        3. Auto-lookup reseller for BIBBI vendors (Liberty, Boxnox, etc.)
+
+        Args:
+            context: Upload context
+            file_content_b64: Base64-encoded file content
+
+        Returns:
+            Updated context with vendor and reseller_id populated
+
+        Raises:
+            Exception: If file decoding or vendor detection fails
+        """
+        # Decode and save file
+        context.file_path = self.decode_and_save_file(file_content_b64, context.filename)
+        print(f"[Pipeline] Saved temp file: {context.file_path}")
+
+        # Detect vendor
+        context.detected_vendor, context.confidence = self.detect_vendor(
+            context.file_path,
+            context.filename
+        )
+        print(f"[Pipeline] Detected vendor: {context.detected_vendor} (confidence: {context.confidence})")
+
+        if not context.detected_vendor:
+            raise Exception(f"Unable to detect vendor from file. Confidence: {context.confidence}")
+
+        # Auto-lookup reseller for BIBBI vendors (if not already set)
+        # This ensures Liberty and other reseller vendors route to BIBBI path
+        if not context.reseller_id:
+            reseller_id = self.lookup_reseller_for_vendor(context.detected_vendor, context.tenant_id)
+            if reseller_id:
+                context.reseller_id = reseller_id
+                print(f"[Pipeline] Auto-assigned reseller_id={reseller_id} for vendor={context.detected_vendor}")
+
+        return context
+
+    def execute_processor(
+        self,
+        context: UploadContext,
+        processor_fn: Callable[[UploadContext], Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Execute processor function with prepared context
+
+        Phase 2 of pipeline execution:
+        1. Update batch status to processing
+        2. Execute processor function (demo or BIBBI)
+        3. Cleanup temporary file
+
+        Args:
+            context: Prepared upload context (with vendor and reseller_id)
+            processor_fn: Function to process the upload
+
+        Returns:
+            Processing result dictionary
+        """
+        try:
+            # Update batch status to processing
+            self.update_batch_status(
+                batch_id=context.batch_id,
+                status="processing",
+                tenant_id=context.tenant_id,
+                vendor_name=context.detected_vendor
+            )
+
+            # Execute processor function
+            result = processor_fn(context)
+
+            # Cleanup file
+            self.cleanup_file(context.file_path)
+
+            return result
+
+        except Exception as e:
+            return self.handle_upload_error(context, e)
+
     def process_upload(
         self,
         context: UploadContext,
@@ -334,9 +422,9 @@ class UploadPipeline:
         processor_fn: Callable[[UploadContext], Dict[str, Any]]
     ) -> Dict[str, Any]:
         """
-        Main pipeline execution
+        Main pipeline execution (combined prepare + execute)
 
-        Handles common workflow:
+        Handles complete workflow:
         1. Decode and save file
         2. Detect vendor
         3. Auto-lookup reseller for BIBBI vendors (Liberty, Boxnox, etc.)
@@ -353,43 +441,11 @@ class UploadPipeline:
             Processing result dictionary
         """
         try:
-            # Decode and save file
-            context.file_path = self.decode_and_save_file(file_content_b64, context.filename)
-            print(f"[Pipeline] Saved temp file: {context.file_path}")
+            # Phase 1: Prepare context (vendor detection + reseller lookup)
+            context = self.prepare_context(context, file_content_b64)
 
-            # Detect vendor
-            context.detected_vendor, context.confidence = self.detect_vendor(
-                context.file_path,
-                context.filename
-            )
-            print(f"[Pipeline] Detected vendor: {context.detected_vendor} (confidence: {context.confidence})")
-
-            if not context.detected_vendor:
-                raise Exception(f"Unable to detect vendor from file. Confidence: {context.confidence}")
-
-            # Auto-lookup reseller for BIBBI vendors (if not already set)
-            # This ensures Liberty and other reseller vendors route to BIBBI path
-            if not context.reseller_id:
-                reseller_id = self.lookup_reseller_for_vendor(context.detected_vendor, context.tenant_id)
-                if reseller_id:
-                    context.reseller_id = reseller_id
-                    print(f"[Pipeline] Auto-assigned reseller_id={reseller_id} for vendor={context.detected_vendor}")
-
-            # Update batch status to processing
-            self.update_batch_status(
-                batch_id=context.batch_id,
-                status="processing",
-                tenant_id=context.tenant_id,
-                vendor_name=context.detected_vendor
-            )
-
-            # Execute processor function
-            result = processor_fn(context)
-
-            # Cleanup file
-            self.cleanup_file(context.file_path)
-
-            return result
+            # Phase 2: Execute processor
+            return self.execute_processor(context, processor_fn)
 
         except Exception as e:
             return self.handle_upload_error(context, e)
