@@ -115,7 +115,8 @@ class BibbιProductService:
             vendor_column = f"{vendor_name}_name"
 
             # Query products table for vendor code match
-            result = self.db.table("products")\
+            # NOTE: Use raw client to bypass tenant filter (products table has no tenant_id)
+            result = self.db.client.table("products")\
                 .select("ean")\
                 .eq(vendor_column, vendor_code)\
                 .execute()
@@ -142,7 +143,8 @@ class BibbιProductService:
         try:
             # Get products with descriptions (limit to avoid N+1 performance issue)
             # Prioritize most recent products
-            result = self.db.table("products")\
+            # NOTE: Use raw client to bypass tenant filter (products table has no tenant_id)
+            result = self.db.client.table("products")\
                 .select("ean, description, functional_name")\
                 .order("updated_at", desc=True)\
                 .limit(self.FUZZY_MATCH_LIMIT)\
@@ -230,7 +232,8 @@ class BibbιProductService:
                 "updated_at": datetime.utcnow().isoformat(),
             }
 
-            result = self.db.table("products").insert(product_data).execute()
+            # NOTE: Use raw client to bypass tenant filter (products table has no tenant_id)
+            result = self.db.client.table("products").insert(product_data).execute()
 
             if not result.data:
                 raise Exception("Failed to create product")
@@ -270,7 +273,8 @@ class BibbιProductService:
         try:
             vendor_column = f"{vendor_name}_name"
 
-            self.db.table("products")\
+            # NOTE: Use raw client to bypass tenant filter (products table has no tenant_id)
+            self.db.client.table("products")\
                 .update({
                     vendor_column: vendor_code,
                     "updated_at": datetime.utcnow().isoformat()
@@ -297,7 +301,8 @@ class BibbιProductService:
         try:
             vendor_column = f"{vendor_name}_name"
 
-            result = self.db.table("products")\
+            # NOTE: Use raw client to bypass tenant filter (products table has no tenant_id)
+            result = self.db.client.table("products")\
                 .select("ean, functional_name, description")\
                 .is_(vendor_column, None)\
                 .execute()

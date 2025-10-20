@@ -297,7 +297,8 @@ class GaliluProcessor(BibbiBseProcessor):
 
         try:
             # Query products table
-            result = self.bibbi_db.table("products")\
+            # NOTE: Use raw client to bypass tenant filter (products table has no tenant_id)
+            result = self.bibbi_db.client.table("products")\
                 .select("list_price")\
                 .eq("ean", ean)\
                 .execute()
