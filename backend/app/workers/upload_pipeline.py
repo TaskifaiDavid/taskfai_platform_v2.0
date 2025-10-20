@@ -235,11 +235,13 @@ class UploadPipeline:
         from app.services.vendors.demo_processor import DemoProcessor
         from app.services.vendors.online_processor import OnlineProcessor
         from app.services.vendors.boxnox_processor import BoxnoxProcessor
+        from app.services.vendors.liberty_processor import LibertyProcessor
 
         processors = {
             "demo": DemoProcessor,
             "online": OnlineProcessor,
-            "boxnox": BoxnoxProcessor
+            "boxnox": BoxnoxProcessor,
+            "liberty": LibertyProcessor
         }
 
         processor_class = processors.get(vendor_name)
