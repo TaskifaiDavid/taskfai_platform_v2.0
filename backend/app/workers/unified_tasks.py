@@ -172,19 +172,25 @@ def _process_bibbi(context: UploadContext) -> Dict[str, Any]:
     print(f"[BIBBI] Parsed {len(parsed_records)} records ({processing_result.successful_rows} success, {processing_result.failed_rows} failed)")
     print(f"[BIBBI] Detected {len(processing_result.stores)} stores")
 
-    # STEP 2: Create/update store records
+    # STEP 2: Create/update store records and build store_identifier → store_id mapping
     print(f"[BIBBI] Step 2: Creating/updating {len(processing_result.stores)} stores")
     store_service = BibbιStoreService(bibbi_db)
 
-    created_stores = 0
-    for store_data in processing_result.stores:
-        try:
-            store_service.get_or_create_store(reseller_id=context.reseller_id, store_data=store_data)
-            created_stores += 1
-        except Exception as e:
-            print(f"[BIBBI] Warning: Failed to create store {store_data.get('store_identifier')}: {e}")
+    # Use bulk operation to get store_identifier → store_id mapping
+    store_mapping = store_service.bulk_get_or_create_stores(
+        reseller_id=context.reseller_id,
+        stores_data=processing_result.stores
+    )
 
+    # Validate store mapping
+    if not store_mapping:
+        error_msg = f"Store mapping is empty - no stores created from {len(processing_result.stores)} detected stores"
+        print(f"[BIBBI] ERROR: {error_msg}")
+        raise ValueError(error_msg)
+
+    created_stores = len(store_mapping)
     print(f"[BIBBI] Created/updated {created_stores} stores")
+    print(f"[BIBBI] Store mapping: {store_mapping}")
 
     # STEP 3: Insert validated sales data into sales_unified
     print(f"[BIBBI] Step 3: Inserting {len(parsed_records)} records into sales_unified")
@@ -192,7 +198,8 @@ def _process_bibbi(context: UploadContext) -> Dict[str, Any]:
 
     try:
         insertion_result = insertion_service.insert_validated_sales(
-            validated_data=parsed_records
+            validated_data=parsed_records,
+            store_mapping=store_mapping  # Pass mapping to convert store_identifier → store_id
         )
 
         rows_inserted = insertion_result.inserted_rows

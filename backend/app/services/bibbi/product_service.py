@@ -26,6 +26,12 @@ class BibbιProductService:
     to BIBBI's master product catalog (keyed by EAN barcodes).
     """
 
+    # Configuration constants
+    TEMP_EAN_PREFIX = "9"  # Prefix for temporary EANs (vendor codes)
+    MAX_VENDOR_CODE_DIGITS = 12  # Maximum digits in vendor code (EAN-13 = 1 prefix + 12 digits)
+    NAME_MATCH_THRESHOLD = 0.75  # Minimum similarity for fuzzy name matching (75%)
+    FUZZY_MATCH_LIMIT = 1000  # Maximum products to load for fuzzy matching
+
     def __init__(self, bibbi_db: BibbιDB):
         """
         Initialize product service
@@ -36,8 +42,6 @@ class BibbιProductService:
         self.db = bibbi_db
         # Cache: {vendor_code -> ean}
         self._product_cache: Dict[str, str] = {}
-        # Name similarity threshold for fuzzy matching
-        self.NAME_MATCH_THRESHOLD = 0.75
 
     def match_or_create_product(
         self,
@@ -77,7 +81,7 @@ class BibbιProductService:
         ean = self._match_by_vendor_code(vendor_code, vendor_name)
         if ean:
             self._product_cache[cache_key] = ean
-            print(f"[BibbiBroduct] Matched by vendor code: {vendor_code} → {ean}")
+            print(f"[BibbiProduct] Matched by vendor code: {vendor_code} → {ean}")
             return ean
 
         # Tier 2: Fuzzy product name match (if name provided)
@@ -87,13 +91,13 @@ class BibbιProductService:
                 # Update vendor column for future uploads
                 self._update_vendor_mapping(ean, vendor_code, vendor_name)
                 self._product_cache[cache_key] = ean
-                print(f"[BibbiBroduct] Matched by name: '{product_name}' → {ean}")
+                print(f"[BibbiProduct] Matched by name: '{product_name}' → {ean}")
                 return ean
 
         # Tier 3: Auto-create with vendor code as temporary EAN
         ean = self._create_product(vendor_code, product_name, vendor_name)
         self._product_cache[cache_key] = ean
-        print(f"[BibbiBroduct] Auto-created: {vendor_code} → {ean} (temporary)")
+        print(f"[BibbiProduct] Auto-created: {vendor_code} → {ean} (temporary)")
         return ean
 
     def _match_by_vendor_code(self, vendor_code: str, vendor_name: str) -> Optional[str]:
@@ -122,7 +126,7 @@ class BibbιProductService:
             return None
 
         except Exception as e:
-            print(f"[BibbiBroduct] Error matching by vendor code: {e}")
+            print(f"[BibbiProduct] Error matching by vendor code: {e}")
             return None
 
     def _match_by_product_name(self, product_name: str) -> Optional[str]:
@@ -136,9 +140,12 @@ class BibbιProductService:
             ean if good match found, None otherwise
         """
         try:
-            # Get all products with descriptions
+            # Get products with descriptions (limit to avoid N+1 performance issue)
+            # Prioritize most recent products
             result = self.db.table("products")\
                 .select("ean, description, functional_name")\
+                .order("updated_at", desc=True)\
+                .limit(self.FUZZY_MATCH_LIMIT)\
                 .execute()
 
             if not result.data:
@@ -176,7 +183,7 @@ class BibbιProductService:
             return None
 
         except Exception as e:
-            print(f"[BibbiBroduct] Error matching by product name: {e}")
+            print(f"[BibbiProduct] Error matching by product name: {e}")
             return None
 
     def _create_product(
@@ -197,9 +204,19 @@ class BibbιProductService:
             ean: The created product's EAN (vendor code zero-padded to 13 digits)
         """
         try:
+            # Sanitize vendor code: filter to digits only
+            sanitized_code = ''.join(filter(str.isdigit, str(vendor_code)))
+
+            # Validate length: must fit in MAX_VENDOR_CODE_DIGITS
+            if len(sanitized_code) > self.MAX_VENDOR_CODE_DIGITS:
+                raise ValueError(
+                    f"Vendor code '{vendor_code}' too long "
+                    f"(>{self.MAX_VENDOR_CODE_DIGITS} digits after sanitization)"
+                )
+
             # Use vendor code as temporary EAN (zero-pad to 13 digits)
-            # Prefix with "9" to indicate temporary/internal code
-            temp_ean = f"9{vendor_code.zfill(12)}"  # 9 + 12 digits = 13 digit EAN
+            # Prefix with TEMP_EAN_PREFIX to indicate temporary/internal code
+            temp_ean = f"{self.TEMP_EAN_PREFIX}{sanitized_code.zfill(self.MAX_VENDOR_CODE_DIGITS)}"
 
             vendor_column = f"{vendor_name}_name"
 
@@ -223,10 +240,16 @@ class BibbιProductService:
         except Exception as e:
             # If duplicate (race condition), try to fetch it
             if "duplicate key" in str(e).lower():
-                print(f"[BibbiBroduct] Race condition detected, fetching existing product")
-                return self._match_by_vendor_code(vendor_code, vendor_name) or vendor_code
+                print(f"[BibbiProduct] Race condition detected, fetching existing product")
+                # FIXED: Return formatted temp_ean instead of raw vendor_code
+                matched = self._match_by_vendor_code(vendor_code, vendor_name)
+                if matched:
+                    return matched
+                # If still not found, return properly formatted temp_ean with sanitization
+                sanitized_code = ''.join(filter(str.isdigit, str(vendor_code)))
+                return f"{self.TEMP_EAN_PREFIX}{sanitized_code.zfill(self.MAX_VENDOR_CODE_DIGITS)}"
 
-            print(f"[BibbiBroduct] Error creating product: {e}")
+            print(f"[BibbiProduct] Error creating product: {e}")
             # Fallback: return vendor code as-is (will likely fail FK constraint)
             raise Exception(f"Failed to create product: {str(e)}")
 
@@ -255,10 +278,10 @@ class BibbιProductService:
                 .eq("ean", ean)\
                 .execute()
 
-            print(f"[BibbiBroduct] Updated vendor mapping: {ean} ← {vendor_code}")
+            print(f"[BibbiProduct] Updated vendor mapping: {ean} ← {vendor_code}")
 
         except Exception as e:
-            print(f"[BibbiBroduct] Error updating vendor mapping: {e}")
+            print(f"[BibbiProduct] Error updating vendor mapping: {e}")
             # Don't raise - this is non-critical
 
     def get_unmapped_products(self, vendor_name: str) -> List[Dict[str, Any]]:
@@ -282,13 +305,13 @@ class BibbιProductService:
             return result.data or []
 
         except Exception as e:
-            print(f"[BibbiBroduct] Error getting unmapped products: {e}")
+            print(f"[BibbiProduct] Error getting unmapped products: {e}")
             return []
 
     def clear_cache(self) -> None:
         """Clear product matching cache"""
         self._product_cache.clear()
-        print("[BibbiBroduct] Cache cleared")
+        print("[BibbiProduct] Cache cleared")
 
 
 def get_product_service(bibbi_db: BibbιDB) -> BibbιProductService:

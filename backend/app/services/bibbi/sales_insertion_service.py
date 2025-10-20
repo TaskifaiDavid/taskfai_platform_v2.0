@@ -77,7 +77,8 @@ class BibbιSalesInsertionService:
     def insert_validated_sales(
         self,
         validated_data: List[Dict[str, Any]],
-        batch_size: Optional[int] = None
+        batch_size: Optional[int] = None,
+        store_mapping: Optional[Dict[str, str]] = None
     ) -> InsertionResult:
         """
         Insert validated sales data into sales_unified table
@@ -87,10 +88,12 @@ class BibbιSalesInsertionService:
         - Duplicate detection (unique constraint violations)
         - Error tracking per row
         - Transaction safety
+        - Store identifier to UUID mapping
 
         Args:
             validated_data: List of validated sales records
             batch_size: Number of rows per batch (default: 1000)
+            store_mapping: Dict mapping store_identifier → store_id (UUID)
 
         Returns:
             InsertionResult with statistics and errors
@@ -103,6 +106,8 @@ class BibbιSalesInsertionService:
         - Living documents (Boxnox, Aromateque, Skins SA) re-uploading same data
         """
         batch_size = batch_size or self.DEFAULT_BATCH_SIZE
+        store_mapping = store_mapping or {}
+
         total_rows = len(validated_data)
         inserted_rows = 0
         duplicate_rows = 0
@@ -110,6 +115,8 @@ class BibbιSalesInsertionService:
         errors = []
 
         print(f"[BibbιSalesInsertion] Inserting {total_rows} rows (batch size: {batch_size})...")
+        if store_mapping:
+            print(f"[BibbιSalesInsertion] Using store mapping: {store_mapping}")
 
         # Process in batches
         for batch_start in range(0, total_rows, batch_size):
@@ -119,7 +126,7 @@ class BibbιSalesInsertionService:
 
             print(f"[BibbιSalesInsertion] Processing batch {batch_num} ({len(batch)} rows)...")
 
-            batch_result = self._insert_batch(batch, batch_start)
+            batch_result = self._insert_batch(batch, batch_start, store_mapping)
 
             inserted_rows += batch_result["inserted"]
             duplicate_rows += batch_result["duplicates"]
@@ -142,7 +149,8 @@ class BibbιSalesInsertionService:
     def _insert_batch(
         self,
         batch: List[Dict[str, Any]],
-        offset: int
+        offset: int,
+        store_mapping: Dict[str, str]
     ) -> Dict[str, Any]:
         """
         Insert a single batch of rows
@@ -150,6 +158,7 @@ class BibbιSalesInsertionService:
         Args:
             batch: List of rows to insert
             offset: Row number offset for error reporting
+            store_mapping: Dict mapping store_identifier → store_id (UUID)
 
         Returns:
             Dictionary with inserted/duplicate/failed counts and errors
@@ -186,6 +195,14 @@ class BibbιSalesInsertionService:
                     "is_return",  # Use is_refund instead
                 ]}
 
+                # Convert store_identifier to store_id using mapping
+                store_identifier = row.get("store_identifier")
+                if store_identifier and store_identifier in store_mapping:
+                    cleaned_row["store_id"] = store_mapping[store_identifier]
+                elif "store_id" not in cleaned_row:
+                    # No mapping available and no store_id - this will fail FK constraint
+                    print(f"[BibbιSalesInsertion] Warning: No store_id mapping for store_identifier='{store_identifier}'")
+
                 # Ensure timestamps
                 if "created_at" not in cleaned_row:
                     cleaned_row["created_at"] = datetime.utcnow().isoformat()
@@ -208,7 +225,7 @@ class BibbιSalesInsertionService:
             if "duplicate key" in error_str or "unique constraint" in error_str:
                 # Fall back to row-by-row insertion to identify duplicates
                 print(f"[BibbιSalesInsertion] Batch duplicate detected, falling back to row-by-row insertion")
-                row_result = self._insert_row_by_row(batch, offset)
+                row_result = self._insert_row_by_row(batch, offset, store_mapping)
                 inserted = row_result["inserted"]
                 duplicates = row_result["duplicates"]
                 failed = row_result["failed"]
@@ -238,7 +255,8 @@ class BibbιSalesInsertionService:
     def _insert_row_by_row(
         self,
         batch: List[Dict[str, Any]],
-        offset: int
+        offset: int,
+        store_mapping: Dict[str, str]
     ) -> Dict[str, Any]:
         """
         Insert rows one by one (fallback when batch insert fails)
@@ -248,6 +266,7 @@ class BibbιSalesInsertionService:
         Args:
             batch: List of rows to insert
             offset: Row number offset for error reporting
+            store_mapping: Dict mapping store_identifier → store_id (UUID)
 
         Returns:
             Dictionary with inserted/duplicate/failed counts and errors
@@ -261,7 +280,24 @@ class BibbιSalesInsertionService:
             row_num = offset + idx + 1
 
             try:
-                result = self.db.table("sales_unified").insert(row).execute()
+                # Clean row and convert store_identifier to store_id
+                cleaned_row = {k: v for k, v in row.items() if k not in [
+                    "sales_id", "tenant_id", "batch_id", "vendor_name",
+                    "product_name_raw", "store_identifier", "is_return"
+                ]}
+
+                # Convert store_identifier to store_id using mapping
+                store_identifier = row.get("store_identifier")
+                if store_identifier and store_identifier in store_mapping:
+                    cleaned_row["store_id"] = store_mapping[store_identifier]
+
+                # Ensure timestamps
+                if "created_at" not in cleaned_row:
+                    cleaned_row["created_at"] = datetime.utcnow().isoformat()
+                if "updated_at" not in cleaned_row:
+                    cleaned_row["updated_at"] = datetime.utcnow().isoformat()
+
+                result = self.db.table("sales_unified").insert(cleaned_row).execute()
 
                 if result.data:
                     inserted += 1
