@@ -85,6 +85,11 @@ class Settings(BaseSettings):
     bibbi_upload_dir: str = "/tmp/bibbi_uploads"
     bibbi_concurrent_uploads: int = 4  # Max simultaneous file processing
 
+    # BIBBI Database Credentials (edckqdrbgtnnjfnshjfq.supabase.co)
+    # Separate Supabase project for BIBBI Parfum SAS B2B reseller data
+    bibbi_supabase_url: Optional[str] = None
+    bibbi_supabase_service_key: Optional[str] = None
+
     @property
     def bibbi_allowed_extensions(self) -> list[str]:
         """Parse comma-separated BIBBI extensions into list"""

@@ -33,7 +33,7 @@ def test_liberty_processor():
     # Process file
     print("\n[2] Processing file...")
     try:
-        records = processor.process(test_file, user_id="test-user-id")
+        records = processor.process(test_file, user_id="test-user-id", batch_id="test-batch-id")
 
         print(f"\n[3] Processing Results:")
         print(f"   - Total records extracted: {len(records)}")
