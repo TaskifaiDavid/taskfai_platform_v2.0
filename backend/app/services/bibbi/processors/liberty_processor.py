@@ -141,6 +141,55 @@ class LibertyProcessor(BibbiBseProcessor):
 
         return stores
 
+    def _parse_store_columns(self, sheet) -> Dict[str, Dict[str, int]]:
+        """
+        Parse Liberty's multi-store column structure from rows 1-2
+
+        Returns:
+            Dict mapping store identifier to column ranges
+            Example: {
+                "flagship": {"qty_col": 12, "sales_col": 13},
+                "online": {"qty_col": 14, "sales_col": 15}
+            }
+        """
+        store_columns = {}
+
+        # Row 1 has store names like "Flagship", "Internet"
+        # Row 3 has column headers like "Sales Qty Un", "Sales Inc VAT £ "
+        row1 = list(sheet[1])
+        row3 = list(sheet[3])
+
+        current_store = None
+        for idx, cell in enumerate(row1):
+            if cell.value and str(cell.value).strip():
+                store_name = str(cell.value).strip()
+
+                # Skip non-store headers
+                if store_name in ['Retail Group', 'Brand', 'Colour Phase', 'Product Group', 'Item ID | Colour', 'Item', 'All Warehouse', '']:
+                    continue
+
+                # Skip "All Sales Channels" - we want individual stores only
+                if store_name.lower() in ['all sales channels', 'total']:
+                    continue
+
+                # Normalize store name to identifier
+                store_id = store_name.lower().replace(' ', '_')
+                if store_id not in store_columns:
+                    store_columns[store_id] = {}
+                    current_store = store_id
+
+            # Find quantity and sales columns under this store
+            if current_store and idx < len(row3) and row3[idx].value:
+                header = str(row3[idx].value).strip()
+
+                if 'qty' in header.lower() or 'quantity' in header.lower():
+                    store_columns[current_store]['qty_col'] = idx
+                elif 'sales' in header.lower() and '£' in header:
+                    store_columns[current_store]['sales_col'] = idx
+
+        print(f"[Liberty] Parsed store columns: {store_columns}")
+        return store_columns
+
     def extract_rows(self, file_path: str) -> List[Dict[str, Any]]:
         """
         Extract rows from Liberty Excel file
@@ -152,14 +201,13 @@ class LibertyProcessor(BibbiBseProcessor):
           - Row 1: Product info (brand, EAN, name) - columns A-L
           - Row 2: Sales data (quantities/amounts by store) - columns M onwards
 
-        We need to:
-        1. Read row 3 as headers
-        2. Process rows 4+ in pairs
-        3. Combine product info (row 1) with sales data (row 2)
-        4. Create separate records for each store (YTD columns)
+        NEW: Creates MULTIPLE records per product - one for each store with data
         """
         workbook = self._load_workbook(file_path, read_only=False)
         sheet = workbook[workbook.sheetnames[0]]
+
+        # Parse store column structure
+        store_columns = self._parse_store_columns(sheet)
 
         # Read row 3 as headers
         headers = []
@@ -170,17 +218,7 @@ class LibertyProcessor(BibbiBseProcessor):
                 headers.append("")
 
         print(f"[Liberty] Found {len(headers)} columns in row 3")
-
-        # Find store columns by looking at rows 1-2
-        # Row 1 has store names like "Flagship", "Internet", "All Sales Channels"
-        store_headers = []
-        for cell in sheet[1]:
-            if cell.value and str(cell.value).strip() and cell.value not in ['', 'All Warehouse']:
-                store_name = str(cell.value).strip()
-                if store_name not in ['Retail Group', 'Brand', 'Colour Phase', 'Product Group', 'Item ID | Colour', 'Item']:
-                    store_headers.append(store_name)
-
-        print(f"[Liberty] Found stores in row 1: {store_headers}")
+        print(f"[Liberty] Detected {len(store_columns)} stores with data")
 
         # Process data rows starting from row 4
         # Liberty uses 2-row pattern: info row + data row
@@ -207,18 +245,32 @@ class LibertyProcessor(BibbiBseProcessor):
                 if i + 1 < len(all_rows):
                     data_row = all_rows[i + 1]
 
-                    # Start with sales data from data_row
-                    combined_row = {}
-                    for idx, header in enumerate(headers):
-                        if idx < len(data_row):
-                            combined_row[header] = data_row[idx]
+                    # Create MULTIPLE records - one per store with data
+                    for store_id, col_info in store_columns.items():
+                        qty_col = col_info.get('qty_col')
+                        sales_col = col_info.get('sales_col')
 
-                    # Override with product info from info_row (AFTER mapping data_row)
-                    # This ensures EAN and product name don't get overwritten
-                    combined_row['Item ID | Colour'] = ean_value
-                    combined_row['Item'] = product_name
+                        if qty_col is None or sales_col is None:
+                            continue
 
-                    rows.append(combined_row)
+                        # Check if this store has data (non-zero quantity or sales)
+                        qty_value = data_row[qty_col] if qty_col < len(data_row) else None
+                        sales_value = data_row[sales_col] if sales_col < len(data_row) else None
+
+                        # Skip if no data for this store
+                        if not qty_value and not sales_value:
+                            continue
+
+                        # Create a record for this store
+                        store_row = {
+                            'Item ID | Colour': ean_value,
+                            'Item': product_name,
+                            'Sales Qty Un': qty_value,
+                            'Sales Inc VAT £ ': sales_value,
+                            'store_identifier': store_id  # Add store identifier
+                        }
+
+                        rows.append(store_row)
 
                     # Skip both rows (info + data)
                     i += 2
@@ -230,7 +282,7 @@ class LibertyProcessor(BibbiBseProcessor):
                 i += 1
 
         workbook.close()
-        print(f"[Liberty] Extracted {len(rows)} product rows")
+        print(f"[Liberty] Extracted {len(rows)} sales records across {len(store_columns)} stores")
         return rows
 
     def transform_row(
@@ -373,9 +425,10 @@ class LibertyProcessor(BibbiBseProcessor):
         transformed["month"] = now.month
         transformed["quarter"] = self._calculate_quarter(now.month)
 
-        # Store identification: For now, default to "flagship" for YTD columns
-        # TODO: Detect which store column this data came from
-        transformed["store_identifier"] = "flagship"
+        # Store identification: Use the store_identifier from raw_row
+        # This was set during extract_rows based on which store column had the data
+        store_identifier = raw_row.get("store_identifier", "flagship")
+        transformed["store_identifier"] = store_identifier
 
         return transformed
 
