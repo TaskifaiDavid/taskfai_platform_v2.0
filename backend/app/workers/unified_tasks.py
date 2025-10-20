@@ -153,8 +153,8 @@ def _process_bibbi(context: UploadContext) -> Dict[str, Any]:
     """
     # LAZY IMPORT: Load only when executing BIBBI path
     from app.core.worker_db import get_worker_supabase_client
-    from app.services.bibbi.store_service import StoreService
-    from app.services.bibbi.sales_insertion_service import SalesInsertionService
+    from app.services.bibbi.store_service import BibbιStoreService
+    from app.services.bibbi.sales_insertion_service import BibbιSalesInsertionService
 
     print(f"[BIBBI] Processing vendor={context.detected_vendor}, reseller={context.reseller_id}")
 
@@ -175,12 +175,12 @@ def _process_bibbi(context: UploadContext) -> Dict[str, Any]:
 
     # STEP 2: Create/update store records
     print(f"[BIBBI] Step 2: Creating/updating {len(processing_result.stores)} stores")
-    store_service = StoreService(bibbi_db)
+    store_service = BibbιStoreService(bibbi_db)
 
     created_stores = 0
     for store_data in processing_result.stores:
         try:
-            store_service.create_or_update_store(store_data)
+            store_service.get_or_create_store(reseller_id=context.reseller_id, store_data=store_data)
             created_stores += 1
         except Exception as e:
             print(f"[BIBBI] Warning: Failed to create store {store_data.get('store_identifier')}: {e}")
@@ -189,18 +189,16 @@ def _process_bibbi(context: UploadContext) -> Dict[str, Any]:
 
     # STEP 3: Insert validated sales data into sales_unified
     print(f"[BIBBI] Step 3: Inserting {len(parsed_records)} records into sales_unified")
-    insertion_service = SalesInsertionService(bibbi_db)
+    insertion_service = BibbιSalesInsertionService(bibbi_db)
 
     try:
-        insertion_result = insertion_service.insert_sales_batch(
-            sales_data=parsed_records,
-            batch_id=context.batch_id,
-            reseller_id=context.reseller_id
+        insertion_result = insertion_service.insert_validated_sales(
+            validated_data=parsed_records
         )
 
-        rows_inserted = insertion_result.get("rows_inserted", 0)
-        rows_duplicate = insertion_result.get("rows_duplicate", 0)
-        rows_failed = insertion_result.get("rows_failed", 0)
+        rows_inserted = insertion_result.inserted_rows
+        rows_duplicate = insertion_result.duplicate_rows
+        rows_failed = insertion_result.failed_rows
 
         print(f"[BIBBI] Insertion complete: {rows_inserted} inserted, {rows_duplicate} duplicates, {rows_failed} failed")
 
