@@ -102,6 +102,55 @@ This directory contains comprehensive deployment and operational guides:
 
 ---
 
+### [Deployment Workflow Guide](./DEPLOYMENT_WORKFLOW.md) ⭐ NEW
+**Purpose:** Daily development and deployment workflow with manual approval
+
+**Key Topics:**
+- Current architecture (branch protection + manual deploy)
+- Daily development workflow (feature → PR → review → merge → deploy)
+- Emergency hotfix procedure
+- Rollback procedures
+- Deployment checklist
+- DigitalOcean deployment instructions
+
+**When to Use:**
+- Every time you deploy to production
+- Understanding the deployment process
+- Training new team members
+- Responding to production incidents
+
+**Includes:**
+- Step-by-step deployment instructions
+- Manual approval workflow
+- Emergency procedures
+- Health check verification
+
+---
+
+### [Branch Protection Setup Guide](./BRANCH_PROTECTION_SETUP_GUIDE.md) ⭐ NEW
+**Purpose:** Configure GitHub branch protection rules for safe deployments
+
+**Key Topics:**
+- Why branch protection is essential
+- Step-by-step GitHub UI configuration
+- Protection rules explanation
+- New PR-based workflow
+- Troubleshooting branch protection
+
+**When to Use:**
+- Initial repository setup (one-time)
+- Verifying protection rules are active
+- Understanding PR requirements
+- Training developers on new workflow
+
+**Protects Against:**
+- Direct pushes to master
+- Merging untested code
+- Accidental force pushes
+- Deploying broken code
+
+---
+
 ## 🚀 Quick Start: Deployment Roadmap
 
 ### Phase 1: Initial Infrastructure (Day 1)
