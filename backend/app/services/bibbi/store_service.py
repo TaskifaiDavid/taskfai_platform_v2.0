@@ -89,33 +89,35 @@ class BibbιStoreService:
             )
         """
         # Validate required fields
-        store_identifier = store_data.get("store_identifier")
+        # BIBBI uses store_code (not store_identifier)
+        store_code = store_data.get("store_identifier") or store_data.get("store_code")
         store_name = store_data.get("store_name")
 
-        if not store_identifier:
-            raise ValueError("store_identifier is required")
+        if not store_code:
+            raise ValueError("store_code/store_identifier is required")
         if not store_name:
             raise ValueError("store_name is required")
 
         # Check cache first
-        cache_key = self._make_cache_key(reseller_id, store_identifier)
+        cache_key = self._make_cache_key(reseller_id, store_code)
         if cache_key in self._store_cache:
             return self._store_cache[cache_key]
 
         # Check if store exists
-        existing_store = self._find_store(reseller_id, store_identifier)
+        existing_store = self._find_store(reseller_id, store_code)
 
         if existing_store:
             store_id = existing_store["store_id"]
             self._store_cache[cache_key] = store_id
-            print(f"[BibbιStore] Found existing store: {store_identifier} → {store_id}")
+            print(f"[BibbιStore] Found existing store: {store_code} → {store_id}")
             return store_id
 
-        # Create new store
-        store_id = self._create_store(reseller_id, store_data)
+        # Create new store (ensure store_code is in store_data)
+        store_data_with_code = {**store_data, "store_code": store_code}
+        store_id = self._create_store(reseller_id, store_data_with_code)
         self._store_cache[cache_key] = store_id
 
-        print(f"[BibbιStore] Created new store: {store_identifier} → {store_id}")
+        print(f"[BibbιStore] Created new store: {store_code} → {store_id}")
         return store_id
 
     def bulk_get_or_create_stores(
@@ -164,14 +166,14 @@ class BibbιStoreService:
     def _find_store(
         self,
         reseller_id: str,
-        store_identifier: str
+        store_code: str
     ) -> Optional[Dict[str, Any]]:
         """
-        Find existing store by reseller and identifier
+        Find existing store by reseller and store_code
 
         Args:
             reseller_id: Reseller UUID
-            store_identifier: Store identifier code
+            store_code: Store code (BIBBI uses store_code, not store_identifier)
 
         Returns:
             Store record or None if not found
@@ -180,7 +182,7 @@ class BibbιStoreService:
             result = self.db.table("stores")\
                 .select("*")\
                 .eq("reseller_id", reseller_id)\
-                .eq("store_identifier", store_identifier)\
+                .eq("store_code", store_code)\
                 .execute()
 
             if result.data and len(result.data) > 0:
@@ -213,20 +215,20 @@ class BibbιStoreService:
         # Generate UUID
         store_id = str(uuid.uuid4())
 
-        # Build store record
+        # Build store record - BIBBI uses store_code (not store_identifier)
         store_record = {
             "store_id": store_id,
             "reseller_id": reseller_id,
-            "store_identifier": store_data["store_identifier"],
+            "store_code": store_data["store_code"],  # Changed from store_identifier
             "store_name": store_data["store_name"],
-            "store_type": store_data.get("store_type", "physical"),
             "country": store_data.get("country"),
+            "region": store_data.get("region"),
             "city": store_data.get("city"),
             "address": store_data.get("address"),
             "postal_code": store_data.get("postal_code"),
             "is_active": True,
             "created_at": datetime.utcnow().isoformat(),
-            # tenant_id automatically added by BibbιSupabaseClient
+            "updated_at": datetime.utcnow().isoformat(),
         }
 
         try:
@@ -241,7 +243,7 @@ class BibbιStoreService:
             # Check if it's a duplicate error (race condition)
             if "duplicate key" in str(e).lower():
                 print(f"[BibbιStore] Race condition detected, re-fetching store")
-                existing = self._find_store(reseller_id, store_data["store_identifier"])
+                existing = self._find_store(reseller_id, store_data["store_code"])
                 if existing:
                     return existing["store_id"]
 
@@ -371,18 +373,18 @@ class BibbιStoreService:
         self._store_cache.clear()
         print("[BibbιStore] Cache cleared")
 
-    def _make_cache_key(self, reseller_id: str, store_identifier: str) -> str:
+    def _make_cache_key(self, reseller_id: str, store_code: str) -> str:
         """
         Generate cache key for store lookup
 
         Args:
             reseller_id: Reseller UUID
-            store_identifier: Store identifier
+            store_code: Store code
 
         Returns:
             Cache key string
         """
-        return f"{reseller_id}:{store_identifier}"
+        return f"{reseller_id}:{store_code}"
 
 
 def get_store_service(bibbi_db: BibbιDB) -> BibbιStoreService:
