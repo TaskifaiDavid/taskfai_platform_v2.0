@@ -160,22 +160,39 @@ class BibbιSalesInsertionService:
         errors = []
 
         try:
-            # Prepare batch data - ensure all required fields present
+            # Prepare batch data - ensure only valid BIBBI schema fields
+            # BIBBI sales_unified schema:
+            # - id: auto-generated UUID (NOT sales_id)
+            # - NO tenant_id (not in table)
+            # - upload_id (not batch_id)
+            # - store_id: UUID FK (not store_identifier)
+            # - product_id, reseller_id, customer_id (nullable)
+            # - sale_date, year, month, quarter, week_of_year
+            # - quantity, sales_local_currency, currency, sales_eur
+            # - is_refund (not is_return)
+            # - order_id, sales_channel
+            # - and many other optional fields
+
             batch_data = []
             for row in batch:
-                # Generate UUID for sales_id if not present
-                if "sales_id" not in row:
-                    row["sales_id"] = str(uuid.uuid4())
-
-                # Ensure tenant_id is set (should already be set by processor)
-                if row.get("tenant_id") != BIBBI_TENANT_ID:
-                    row["tenant_id"] = BIBBI_TENANT_ID
+                # Clean row: remove fields not in BIBBI schema
+                cleaned_row = {k: v for k, v in row.items() if k not in [
+                    "sales_id",  # Auto-generated as 'id'
+                    "tenant_id",  # Not in BIBBI schema
+                    "batch_id",  # Use upload_id instead
+                    "vendor_name",  # Not in schema
+                    "product_name_raw",  # Not in schema
+                    "store_identifier",  # Use store_id (UUID) instead
+                    "is_return",  # Use is_refund instead
+                ]}
 
                 # Ensure timestamps
-                if "created_at" not in row:
-                    row["created_at"] = datetime.utcnow().isoformat()
+                if "created_at" not in cleaned_row:
+                    cleaned_row["created_at"] = datetime.utcnow().isoformat()
+                if "updated_at" not in cleaned_row:
+                    cleaned_row["updated_at"] = datetime.utcnow().isoformat()
 
-                batch_data.append(row)
+                batch_data.append(cleaned_row)
 
             # Attempt batch insert
             result = self.db.table("sales_unified").insert(batch_data).execute()
@@ -370,8 +387,7 @@ class BibbιSalesInsertionService:
 
     def rollback_upload(
         self,
-        upload_id: str,
-        batch_id: str
+        upload_id: str
     ) -> int:
         """
         Rollback/delete all sales records for an upload
@@ -382,18 +398,17 @@ class BibbιSalesInsertionService:
         - Testing
 
         Args:
-            upload_id: Upload UUID
-            batch_id: Batch ID (used to identify records)
+            upload_id: Upload UUID (sales_unified uses upload_id, not batch_id)
 
         Returns:
             Number of rows deleted
         """
         try:
-            # Delete all sales records with this batch_id
-            # Note: tenant_id automatically filtered by BibbιSupabaseClient
+            # Delete all sales records with this upload_id
+            # BIBBI uses upload_id (not batch_id)
             result = self.db.table("sales_unified")\
                 .delete()\
-                .eq("batch_id", batch_id)\
+                .eq("upload_id", upload_id)\
                 .execute()
 
             deleted_count = len(result.data) if result.data else 0
