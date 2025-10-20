@@ -29,7 +29,7 @@ class BibbιProductService:
     # Configuration constants
     TEMP_EAN_PREFIX = "9"  # Prefix for temporary EANs (vendor codes)
     MAX_VENDOR_CODE_DIGITS = 12  # Maximum digits in vendor code (EAN-13 = 1 prefix + 12 digits)
-    NAME_MATCH_THRESHOLD = 0.75  # Minimum similarity for fuzzy name matching (75%)
+    NAME_MATCH_THRESHOLD = 0.85  # Minimum similarity for fuzzy name matching (85%, increased from 75%)
     FUZZY_MATCH_LIMIT = 1000  # Maximum products to load for fuzzy matching
 
     def __init__(self, bibbi_db: BibbιDB):
@@ -180,7 +180,10 @@ class BibbιProductService:
 
             # Return match if score exceeds threshold
             if best_match_score >= self.NAME_MATCH_THRESHOLD:
+                print(f"[BibbiProduct] Fuzzy match: '{product_name}' → EAN {best_match_ean} (score: {best_match_score:.2f})")
                 return best_match_ean
+            else:
+                print(f"[BibbiProduct] No fuzzy match: '{product_name}' (best score: {best_match_score:.2f}, threshold: {self.NAME_MATCH_THRESHOLD})")
 
             return None
 
