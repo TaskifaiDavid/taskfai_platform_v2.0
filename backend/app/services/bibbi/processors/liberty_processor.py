@@ -257,30 +257,50 @@ class LibertyProcessor(BibbiBseProcessor):
         # Start with base row
         transformed = self._create_base_row(batch_id)
 
-        # Extract and parse EAN from "Item ID | Colour" format
+        # Extract Liberty product code from "Item ID | Colour" format
+        # NOTE: These are Liberty's internal codes, NOT real EAN barcodes
         ean_with_color = raw_row.get("Item ID | Colour")
         if not ean_with_color:
             raise ValueError("Missing 'Item ID | Colour'")
 
-        # Parse EAN: extract everything before " | "
+        # Parse Liberty code: extract everything before " | "
         if isinstance(ean_with_color, str) and '|' in ean_with_color:
-            ean_value = ean_with_color.split('|')[0].strip()
+            liberty_code = ean_with_color.split('|')[0].strip()
         else:
-            ean_value = str(ean_with_color).strip()
+            liberty_code = str(ean_with_color).strip()
 
-        # Liberty uses 9-digit internal codes, pad to 13 digits for EAN-13 format
-        if ean_value.isdigit() and len(ean_value) < 13:
-            ean_value = ean_value.zfill(13)  # Pad with leading zeros
+        # Clean Liberty code (remove leading zeros for matching)
+        if liberty_code.isdigit():
+            liberty_code = liberty_code.lstrip('0') or '0'
 
-        try:
-            transformed["product_id"] = self._validate_ean(ean_value)
-        except ValueError as e:
-            raise ValueError(f"Invalid EAN from '{ean_with_color}': {e}")
-
-        # Extract product name
+        # Extract product name for matching
         product_name = raw_row.get("Item")
-        if product_name:
-            transformed["product_name_raw"] = str(product_name).strip()
+        product_name_str = str(product_name).strip() if product_name else None
+
+        # Use product matcher to get BIBBI EAN
+        # This will match existing products or auto-create with temporary EAN
+        try:
+            from app.services.bibbi.product_service import get_product_service
+            from app.core.bibbi import get_bibbi_db
+
+            bibbi_db = get_bibbi_db()
+            product_service = get_product_service(bibbi_db)
+
+            # Match or create product
+            matched_ean = product_service.match_or_create_product(
+                vendor_code=liberty_code,
+                product_name=product_name_str,
+                vendor_name="liberty"
+            )
+
+            transformed["product_id"] = matched_ean
+
+        except Exception as e:
+            raise ValueError(f"Failed to match product '{liberty_code}' ('{product_name_str}'): {e}")
+
+        # Store product name for reference
+        if product_name_str:
+            transformed["product_name_raw"] = product_name_str
 
         # Extract quantity - Liberty has no single "quantity" column
         # Instead, quantity is in store-specific columns like "Sales Qty Un"
