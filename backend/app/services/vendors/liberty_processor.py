@@ -19,10 +19,10 @@ class LibertyProcessor:
     # Fixed column positions (0-based index)
     COLUMN_MAPPING = {
         "product_name": 5,           # Column F - Liberty product name
-        "flagship_qty": 12,          # Column M - Flagship Actual Quantity
-        "flagship_sales_gbp": 13,    # Column N - Flagship Actual Sales (GBP)
-        "internet_qty": 16,          # Column Q - Internet Actual Quantity
-        "internet_sales_gbp": 17,    # Column R - Internet Actual Sales (GBP)
+        "flagship_qty": 14,          # Column O - Flagship Actual Quantity
+        "flagship_sales_gbp": 15,    # Column P - Flagship Actual Sales (GBP)
+        "internet_qty": 18,          # Column S - Internet Actual Quantity
+        "internet_sales_gbp": 19,    # Column T - Internet Actual Sales (GBP)
     }
 
     # Currency conversion rate
@@ -197,27 +197,39 @@ class LibertyProcessor:
         processed_rows = []  # Track for duplicate detection
 
         # Start from row 4 (index 3) to skip 3-row header structure
-        for idx, row in enumerate(rows[3:], start=4):
+        # Liberty structure: product header row → data row → total row (repeating)
+        idx = 3
+        while idx < len(rows) - 1:  # -1 because we read pairs
+            # Get current row and next row
+            header_row = rows[idx]
+            data_row = rows[idx + 1] if idx + 1 < len(rows) else None
+
             # Skip if not enough columns
-            if not row or len(row) <= max(self.COLUMN_MAPPING.values()):
+            if not header_row or not data_row or len(header_row) <= max(self.COLUMN_MAPPING.values()) or len(data_row) <= max(self.COLUMN_MAPPING.values()):
+                idx += 1
                 continue
 
-            # Skip total rows
-            if self._is_total_row(row):
+            # Extract product name from header row (Column F)
+            liberty_name = header_row[self.COLUMN_MAPPING["product_name"]]
+
+            # Skip if no product name or is a total row
+            if not liberty_name or str(liberty_name).strip() == "" or self._is_total_row(header_row):
+                idx += 1
                 continue
 
-            # Extract product name from Column F
-            liberty_name = row[self.COLUMN_MAPPING["product_name"]]
-            if not liberty_name or str(liberty_name).strip() == "":
+            # Check if data row has any numeric values (not empty header row)
+            flagship_qty_raw = data_row[self.COLUMN_MAPPING["flagship_qty"]]
+            flagship_sales_raw = data_row[self.COLUMN_MAPPING["flagship_sales_gbp"]]
+
+            # If data row is also empty (no quantities), skip this pair
+            if (not flagship_qty_raw or flagship_qty_raw == '') and (not flagship_sales_raw or flagship_sales_raw == ''):
+                idx += 1
                 continue
 
             # Map to functional name
             functional_name = self._map_product_name(str(liberty_name))
 
-            # Extract Flagship data (columns M, N)
-            flagship_qty_raw = row[self.COLUMN_MAPPING["flagship_qty"]]
-            flagship_sales_raw = row[self.COLUMN_MAPPING["flagship_sales_gbp"]]
-
+            # Extract Flagship data from data row (columns O, P)
             flagship_qty = self._clean_numeric_value(flagship_qty_raw)
             flagship_sales_gbp = self._clean_numeric_value(flagship_sales_raw)
 
@@ -242,9 +254,9 @@ class LibertyProcessor:
                         records.append(flagship_record)
                         processed_rows.append(flagship_record)
 
-            # Extract Internet data (columns Q, R)
-            internet_qty_raw = row[self.COLUMN_MAPPING["internet_qty"]]
-            internet_sales_raw = row[self.COLUMN_MAPPING["internet_sales_gbp"]]
+            # Extract Internet data from data row (columns S, T)
+            internet_qty_raw = data_row[self.COLUMN_MAPPING["internet_qty"]]
+            internet_sales_raw = data_row[self.COLUMN_MAPPING["internet_sales_gbp"]]
 
             internet_qty = self._clean_numeric_value(internet_qty_raw)
             internet_sales_gbp = self._clean_numeric_value(internet_sales_raw)
@@ -269,6 +281,9 @@ class LibertyProcessor:
                     if internet_record["quantity"] > 0 or (internet_record["quantity"] <= 0 and internet_record["sales_gbp"] != 0):
                         records.append(internet_record)
                         processed_rows.append(internet_record)
+
+            # Move to next product (skip data row and total row)
+            idx += 3
 
         workbook.close()
 
