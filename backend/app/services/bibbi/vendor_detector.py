@@ -59,13 +59,13 @@ class BibbιVendorDetector:
             "description": "Galilu - No EAN, needs product matching, multi-sheet stores"
         },
         "liberty": {
-            "filename_keywords": ["liberty"],
-            "sheet_names": ["Sheet1", "Sales"],
-            "required_columns": ["EAN", "Product", "Sold", "Value"],
-            "store_indicators": ["Flagship", "online"],  # Flagship = physical
+            "filename_keywords": ["liberty", "continuity", "supplier size report", "supplier report", "weekly sell"],
+            "sheet_names": ["Sheet1", "Sales", "Sales By Size", "Size Analysis", "Product Group Analysis", "Total", "Total 2023", "Total 2024", "Total 2025", "w."],
+            "required_columns": ["EAN", "Product", "Sold", "Value", "Flagship", "Internet", "Sales Channel", "Warehouse", "Brand", "Weekly", "sku"],
+            "store_indicators": ["Flagship", "online", "Internet", "All Sales Channels"],  # Flagship = physical
             "currency": "GBP",
             "special_handling": ["duplicate_rows", "returns_in_parentheses"],
-            "description": "Liberty - GBP to EUR, duplicate rows, returns parsing"
+            "description": "Liberty - GBP to EUR, duplicate rows, returns parsing, supports both weekly and continuity formats"
         },
         "selfridges": {
             "filename_keywords": ["selfridges"],
