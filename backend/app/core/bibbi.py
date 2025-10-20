@@ -311,7 +311,12 @@ def get_bibbi_db() -> BibbιSupabaseClient:
     from supabase import create_client
     from app.core.config import settings
 
-    supabase_client = create_client(settings.supabase_url, settings.supabase_service_key)
+    # Use BIBBI-specific database credentials (edckqdrbgtnnjfnshjfq.supabase.co)
+    # Fallback to central registry for local dev if BIBBI credentials not configured
+    supabase_client = create_client(
+        settings.bibbi_supabase_url or settings.supabase_url,
+        settings.bibbi_supabase_service_key or settings.supabase_service_key
+    )
     return BibbιSupabaseClient(supabase_client)
 
 
