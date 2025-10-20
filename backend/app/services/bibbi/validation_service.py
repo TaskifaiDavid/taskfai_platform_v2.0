@@ -380,7 +380,8 @@ class BibbιValidationService:
     def _product_exists(self, product_id: str) -> bool:
         """Check if product exists in products table"""
         try:
-            result = self.db.table("products")\
+            # NOTE: Use raw client to bypass tenant filter (products table has no tenant_id)
+            result = self.db.client.table("products")\
                 .select("ean")\
                 .eq("ean", product_id)\
                 .execute()

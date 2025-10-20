@@ -25,7 +25,21 @@ from app.services.bibbi.product_service import BibbιProductService
 @pytest.fixture
 def mock_bibbi_db():
     """Mock BIBBI database client"""
+    # Create mock for the raw Supabase client (used for products table)
+    mock_raw_client = Mock()
+    mock_raw_client.table = Mock(return_value=mock_raw_client)
+    mock_raw_client.select = Mock(return_value=mock_raw_client)
+    mock_raw_client.eq = Mock(return_value=mock_raw_client)
+    mock_raw_client.is_ = Mock(return_value=mock_raw_client)
+    mock_raw_client.insert = Mock(return_value=mock_raw_client)
+    mock_raw_client.update = Mock(return_value=mock_raw_client)
+    mock_raw_client.order = Mock(return_value=mock_raw_client)
+    mock_raw_client.limit = Mock(return_value=mock_raw_client)
+    mock_raw_client.execute = Mock()
+
+    # Create BibbιDB wrapper mock
     mock_db = Mock()
+    mock_db.client = mock_raw_client  # Point to raw client for products table
     mock_db.table = Mock(return_value=mock_db)
     mock_db.select = Mock(return_value=mock_db)
     mock_db.eq = Mock(return_value=mock_db)
@@ -35,6 +49,7 @@ def mock_bibbi_db():
     mock_db.order = Mock(return_value=mock_db)
     mock_db.limit = Mock(return_value=mock_db)
     mock_db.execute = Mock()
+
     return mock_db
 
 
@@ -56,14 +71,14 @@ class TestMatchByVendorCode:
         # Setup mock response
         mock_result = Mock()
         mock_result.data = [{"ean": "1234567890123"}]
-        mock_bibbi_db.execute.return_value = mock_result
+        mock_bibbi_db.client.execute.return_value = mock_result
 
         # Execute
         ean = product_service._match_by_vendor_code("834429", "liberty")
 
         # Verify
         assert ean == "1234567890123"
-        mock_bibbi_db.table.assert_called_with("products")
+        mock_bibbi_db.client.table.assert_called_with("products")
         mock_bibbi_db.eq.assert_called_with("liberty_name", "834429")
 
     def test_match_vendor_code_not_found(self, product_service, mock_bibbi_db):
@@ -71,7 +86,7 @@ class TestMatchByVendorCode:
         # Setup mock response
         mock_result = Mock()
         mock_result.data = []
-        mock_bibbi_db.execute.return_value = mock_result
+        mock_bibbi_db.client.execute.return_value = mock_result
 
         # Execute
         ean = product_service._match_by_vendor_code("nonexistent", "liberty")
@@ -82,7 +97,7 @@ class TestMatchByVendorCode:
     def test_match_vendor_code_database_error(self, product_service, mock_bibbi_db):
         """Test handling database errors gracefully"""
         # Setup mock to raise exception
-        mock_bibbi_db.execute.side_effect = Exception("Database error")
+        mock_bibbi_db.client.execute.side_effect = Exception("Database error")
 
         # Execute
         ean = product_service._match_by_vendor_code("834429", "liberty")
@@ -106,14 +121,14 @@ class TestMatchByProductName:
             {"ean": "1234567890123", "description": "TROISIEME 10ML", "functional_name": None},
             {"ean": "9876543210987", "description": "OTHER PRODUCT", "functional_name": None}
         ]
-        mock_bibbi_db.execute.return_value = mock_result
+        mock_bibbi_db.client.execute.return_value = mock_result
 
         # Execute
         ean = product_service._match_by_product_name("TROISIEME 10ML")
 
         # Verify - should match with 100% similarity
         assert ean == "1234567890123"
-        mock_bibbi_db.limit.assert_called_with(1000)
+        mock_bibbi_db.client.limit.assert_called_with(1000)
 
     def test_fuzzy_match_similar_name(self, product_service, mock_bibbi_db):
         """Test fuzzy matching with high similarity (>75%)"""
@@ -122,7 +137,7 @@ class TestMatchByProductName:
         mock_result.data = [
             {"ean": "1234567890123", "description": "Troisieme 10ml bottle", "functional_name": None},
         ]
-        mock_bibbi_db.execute.return_value = mock_result
+        mock_bibbi_db.client.execute.return_value = mock_result
 
         # Execute - similar but not exact
         ean = product_service._match_by_product_name("TROISIEME 10ML")
@@ -137,7 +152,7 @@ class TestMatchByProductName:
         mock_result.data = [
             {"ean": "1234567890123", "description": "Completely Different Product", "functional_name": None},
         ]
-        mock_bibbi_db.execute.return_value = mock_result
+        mock_bibbi_db.client.execute.return_value = mock_result
 
         # Execute
         ean = product_service._match_by_product_name("TROISIEME 10ML")
@@ -152,7 +167,7 @@ class TestMatchByProductName:
         mock_result.data = [
             {"ean": "1234567890123", "description": None, "functional_name": "TROISIEME 10ML"},
         ]
-        mock_bibbi_db.execute.return_value = mock_result
+        mock_bibbi_db.client.execute.return_value = mock_result
 
         # Execute
         ean = product_service._match_by_product_name("TROISIEME 10ML")
@@ -165,7 +180,7 @@ class TestMatchByProductName:
         # Setup mock response
         mock_result = Mock()
         mock_result.data = []
-        mock_bibbi_db.execute.return_value = mock_result
+        mock_bibbi_db.client.execute.return_value = mock_result
 
         # Execute
         ean = product_service._match_by_product_name("TROISIEME 10ML")
@@ -178,13 +193,13 @@ class TestMatchByProductName:
         # Setup mock response
         mock_result = Mock()
         mock_result.data = []
-        mock_bibbi_db.execute.return_value = mock_result
+        mock_bibbi_db.client.execute.return_value = mock_result
 
         # Execute
         product_service._match_by_product_name("Test Product")
 
         # Verify limit was applied
-        mock_bibbi_db.limit.assert_called_with(1000)
+        mock_bibbi_db.client.limit.assert_called_with(1000)
         mock_bibbi_db.order.assert_called_with("updated_at", desc=True)
 
 
@@ -200,15 +215,15 @@ class TestCreateProduct:
         # Setup mock response
         mock_result = Mock()
         mock_result.data = [{"ean": "9000834429000"}]
-        mock_bibbi_db.execute.return_value = mock_result
+        mock_bibbi_db.client.execute.return_value = mock_result
 
         # Execute
         ean = product_service._create_product("834429", "TROISIEME 10ML", "liberty")
 
         # Verify - zfill pads from left, so "834429".zfill(12) = "000000834429"
         assert ean == "9000000834429"
-        mock_bibbi_db.table.assert_called_with("products")
-        mock_bibbi_db.insert.assert_called_once()
+        mock_bibbi_db.client.table.assert_called_with("products")
+        mock_bibbi_db.client.insert.assert_called_once()
 
         # Verify insert payload
         call_args = mock_bibbi_db.insert.call_args[0][0]
@@ -222,7 +237,7 @@ class TestCreateProduct:
         # Setup mock response
         mock_result = Mock()
         mock_result.data = [{"ean": "9000123456000"}]
-        mock_bibbi_db.execute.return_value = mock_result
+        mock_bibbi_db.client.execute.return_value = mock_result
 
         # Execute with non-numeric characters
         ean = product_service._create_product("ABC-123456-XYZ", "Test Product", "liberty")
@@ -244,7 +259,7 @@ class TestCreateProduct:
         # Setup mock response
         mock_result = Mock()
         mock_result.data = [{"ean": "9000834429000"}]
-        mock_bibbi_db.execute.return_value = mock_result
+        mock_bibbi_db.client.execute.return_value = mock_result
 
         # Execute
         ean = product_service._create_product("834429", None, "liberty")
@@ -259,7 +274,7 @@ class TestCreateProduct:
     def test_create_product_race_condition(self, product_service, mock_bibbi_db):
         """Test handling race condition (duplicate key error)"""
         # Setup mocks - insert fails with duplicate, then fetch finds existing product
-        mock_bibbi_db.execute.side_effect = [
+        mock_bibbi_db.client.execute.side_effect = [
             Exception("duplicate key value violates unique constraint"),
             Mock(data=[{"ean": "9000834429000"}])  # Existing product found
         ]
@@ -273,7 +288,7 @@ class TestCreateProduct:
     def test_create_product_race_condition_sanitized_fallback(self, product_service, mock_bibbi_db):
         """Test race condition fallback uses sanitized vendor code"""
         # Setup mocks - insert fails, match also fails
-        mock_bibbi_db.execute.side_effect = [
+        mock_bibbi_db.client.execute.side_effect = [
             Exception("duplicate key"),
             Mock(data=[])  # match returns nothing
         ]
@@ -287,7 +302,7 @@ class TestCreateProduct:
     def test_create_product_generic_error(self, product_service, mock_bibbi_db):
         """Test handling non-duplicate errors"""
         # Setup mock to raise generic exception
-        mock_bibbi_db.execute.side_effect = Exception("Database connection lost")
+        mock_bibbi_db.client.execute.side_effect = Exception("Database connection lost")
 
         # Execute - should raise exception
         with pytest.raises(Exception, match="Failed to create product"):
@@ -306,15 +321,15 @@ class TestCaching:
         # Setup mock for first call
         mock_result = Mock()
         mock_result.data = [{"ean": "1234567890123"}]
-        mock_bibbi_db.execute.return_value = mock_result
+        mock_bibbi_db.client.execute.return_value = mock_result
 
         # First call - should hit database
         ean1 = product_service.match_or_create_product("834429", "Test Product", "liberty")
-        call_count_1 = mock_bibbi_db.execute.call_count
+        call_count_1 = mock_bibbi_db.client.execute.call_count
 
         # Second call - should use cache
         ean2 = product_service.match_or_create_product("834429", "Test Product", "liberty")
-        call_count_2 = mock_bibbi_db.execute.call_count
+        call_count_2 = mock_bibbi_db.client.execute.call_count
 
         # Verify
         assert ean1 == ean2 == "1234567890123"
@@ -329,7 +344,7 @@ class TestCaching:
         mock_result_galilu = Mock()
         mock_result_galilu.data = [{"ean": "2222222222222"}]
 
-        mock_bibbi_db.execute.side_effect = [mock_result_liberty, mock_result_galilu]
+        mock_bibbi_db.client.execute.side_effect = [mock_result_liberty, mock_result_galilu]
 
         # Call with same code but different vendors
         ean_liberty = product_service.match_or_create_product("12345", "Product", "liberty")
@@ -344,18 +359,18 @@ class TestCaching:
         # Setup mock
         mock_result = Mock()
         mock_result.data = [{"ean": "1234567890123"}]
-        mock_bibbi_db.execute.return_value = mock_result
+        mock_bibbi_db.client.execute.return_value = mock_result
 
         # Add to cache
         product_service.match_or_create_product("834429", "Test Product", "liberty")
-        call_count_1 = mock_bibbi_db.execute.call_count
+        call_count_1 = mock_bibbi_db.client.execute.call_count
 
         # Clear cache
         product_service.clear_cache()
 
         # Call again - should hit database
         product_service.match_or_create_product("834429", "Test Product", "liberty")
-        call_count_2 = mock_bibbi_db.execute.call_count
+        call_count_2 = mock_bibbi_db.client.execute.call_count
 
         # Verify cache was cleared (additional DB call made)
         assert call_count_2 > call_count_1
@@ -373,7 +388,7 @@ class TestMatchOrCreateProduct:
         # Setup mock for exact match
         mock_result = Mock()
         mock_result.data = [{"ean": "1234567890123"}]
-        mock_bibbi_db.execute.return_value = mock_result
+        mock_bibbi_db.client.execute.return_value = mock_result
 
         # Execute
         ean = product_service.match_or_create_product("834429", "Test Product", "liberty")
@@ -393,7 +408,7 @@ class TestMatchOrCreateProduct:
             {"ean": "9876543210987", "description": "Test Product Name", "functional_name": None}
         ]
 
-        mock_bibbi_db.execute.side_effect = [
+        mock_bibbi_db.client.execute.side_effect = [
             mock_result_empty,  # Vendor code match fails
             mock_result_fuzzy,  # Fuzzy match succeeds
             Mock(data=[])  # Update vendor mapping
@@ -405,7 +420,7 @@ class TestMatchOrCreateProduct:
         # Verify
         assert ean == "9876543210987"
         # Should update vendor mapping
-        mock_bibbi_db.update.assert_called_once()
+        mock_bibbi_db.client.update.assert_called_once()
 
     def test_tier_3_auto_create(self, product_service, mock_bibbi_db):
         """Test Tier 3: Auto-create when both matches fail"""
@@ -416,7 +431,7 @@ class TestMatchOrCreateProduct:
         mock_result_create = Mock()
         mock_result_create.data = [{"ean": "9000834429000"}]
 
-        mock_bibbi_db.execute.side_effect = [
+        mock_bibbi_db.client.execute.side_effect = [
             mock_result_empty,  # Vendor code match fails
             mock_result_empty,  # Fuzzy match fails
             mock_result_create  # Auto-create succeeds
@@ -427,7 +442,7 @@ class TestMatchOrCreateProduct:
 
         # Verify
         assert ean == "9000000834429"
-        mock_bibbi_db.insert.assert_called_once()
+        mock_bibbi_db.client.insert.assert_called_once()
 
     def test_without_product_name(self, product_service, mock_bibbi_db):
         """Test workflow without product name (skips Tier 2)"""
@@ -438,7 +453,7 @@ class TestMatchOrCreateProduct:
         mock_result_create = Mock()
         mock_result_create.data = [{"ean": "9000834429000"}]
 
-        mock_bibbi_db.execute.side_effect = [
+        mock_bibbi_db.client.execute.side_effect = [
             mock_result_empty,  # Vendor code match fails
             mock_result_create  # Auto-create succeeds (skips fuzzy match)
         ]
@@ -462,14 +477,14 @@ class TestUpdateVendorMapping:
         # Setup mock
         mock_result = Mock()
         mock_result.data = []
-        mock_bibbi_db.execute.return_value = mock_result
+        mock_bibbi_db.client.execute.return_value = mock_result
 
         # Execute
         product_service._update_vendor_mapping("1234567890123", "834429", "liberty")
 
         # Verify
-        mock_bibbi_db.table.assert_called_with("products")
-        mock_bibbi_db.update.assert_called_once()
+        mock_bibbi_db.client.table.assert_called_with("products")
+        mock_bibbi_db.client.update.assert_called_once()
         mock_bibbi_db.eq.assert_called_with("ean", "1234567890123")
 
         # Verify update payload
@@ -480,7 +495,7 @@ class TestUpdateVendorMapping:
     def test_update_vendor_mapping_handles_errors(self, product_service, mock_bibbi_db):
         """Test vendor mapping update handles errors gracefully"""
         # Setup mock to raise exception
-        mock_bibbi_db.execute.side_effect = Exception("Database error")
+        mock_bibbi_db.client.execute.side_effect = Exception("Database error")
 
         # Execute - should not crash
         product_service._update_vendor_mapping("1234567890123", "834429", "liberty")
@@ -503,19 +518,19 @@ class TestHelperMethods:
             {"ean": "1111111111111", "functional_name": "Product 1", "description": "Desc 1"},
             {"ean": "2222222222222", "functional_name": "Product 2", "description": "Desc 2"}
         ]
-        mock_bibbi_db.execute.return_value = mock_result
+        mock_bibbi_db.client.execute.return_value = mock_result
 
         # Execute
         unmapped = product_service.get_unmapped_products("liberty")
 
         # Verify
         assert len(unmapped) == 2
-        mock_bibbi_db.is_.assert_called_with("liberty_name", None)
+        mock_bibbi_db.client.is_.assert_called_with("liberty_name", None)
 
     def test_get_unmapped_products_error(self, product_service, mock_bibbi_db):
         """Test get_unmapped_products handles errors"""
         # Setup mock to raise exception
-        mock_bibbi_db.execute.side_effect = Exception("Database error")
+        mock_bibbi_db.client.execute.side_effect = Exception("Database error")
 
         # Execute
         unmapped = product_service.get_unmapped_products("liberty")
