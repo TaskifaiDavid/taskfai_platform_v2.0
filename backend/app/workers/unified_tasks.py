@@ -182,6 +182,12 @@ def _process_bibbi(context: UploadContext) -> Dict[str, Any]:
         stores_data=processing_result.stores
     )
 
+    # Validate store mapping
+    if not store_mapping:
+        error_msg = f"Store mapping is empty - no stores created from {len(processing_result.stores)} detected stores"
+        print(f"[BIBBI] ERROR: {error_msg}")
+        raise ValueError(error_msg)
+
     created_stores = len(store_mapping)
     print(f"[BIBBI] Created/updated {created_stores} stores")
     print(f"[BIBBI] Store mapping: {store_mapping}")

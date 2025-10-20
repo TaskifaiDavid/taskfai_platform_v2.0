@@ -251,6 +251,7 @@ class LibertyProcessor(BibbiBseProcessor):
                         sales_col = col_info.get('sales_col')
 
                         if qty_col is None or sales_col is None:
+                            print(f"[Liberty] WARNING: Store '{store_id}' missing columns (qty_col: {qty_col}, sales_col: {sales_col}) - skipping")
                             continue
 
                         # Check if this store has data (non-zero quantity or sales)
