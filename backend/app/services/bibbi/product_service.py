@@ -48,7 +48,7 @@ class BibbιProductService:
         vendor_code: str,
         product_name: Optional[str] = None,
         vendor_name: str = "liberty"
-    ) -> str:
+    ) -> Dict[str, Any]:
         """
         Match vendor product code to BIBBI EAN, or create if not found
 
@@ -63,26 +63,37 @@ class BibbιProductService:
             vendor_name: Vendor identifier ("liberty", "galilu", etc.)
 
         Returns:
-            ean: BIBBI product EAN barcode
+            Dict containing:
+                - ean: BIBBI product EAN barcode
+                - functional_name: Product name
+                - description: Product description
+                - category_id: Category UUID
+                - size_ml: Volume in ML
+                - price_eur: Price in EUR
+                - ... other product fields
 
         Example:
-            ean = service.match_or_create_product(
+            product = service.match_or_create_product(
                 vendor_code="834429",
                 product_name="TROISIEME 10ML",
                 vendor_name="liberty"
             )
+            ean = product["ean"]
+            name = product["functional_name"]
         """
         # Check cache first
         cache_key = f"{vendor_name}:{vendor_code}"
         if cache_key in self._product_cache:
-            return self._product_cache[cache_key]
+            cached_ean = self._product_cache[cache_key]
+            # Return full product details from cache (EAN → full product)
+            return self._fetch_product_details(cached_ean)
 
         # Tier 1: Exact vendor code match
         ean = self._match_by_vendor_code(vendor_code, vendor_name)
         if ean:
             self._product_cache[cache_key] = ean
             print(f"[BibbiProduct] Matched by vendor code: {vendor_code} → {ean}")
-            return ean
+            return self._fetch_product_details(ean)
 
         # Tier 2: Fuzzy product name match (if name provided)
         if product_name:
@@ -92,13 +103,13 @@ class BibbιProductService:
                 self._update_vendor_mapping(ean, vendor_code, vendor_name)
                 self._product_cache[cache_key] = ean
                 print(f"[BibbiProduct] Matched by name: '{product_name}' → {ean}")
-                return ean
+                return self._fetch_product_details(ean)
 
         # Tier 3: Auto-create with vendor code as temporary EAN
         ean = self._create_product(vendor_code, product_name, vendor_name)
         self._product_cache[cache_key] = ean
         print(f"[BibbiProduct] Auto-created: {vendor_code} → {ean} (temporary)")
-        return ean
+        return self._fetch_product_details(ean)
 
     def _match_by_vendor_code(self, vendor_code: str, vendor_name: str) -> Optional[str]:
         """
@@ -315,6 +326,45 @@ class BibbιProductService:
         except Exception as e:
             print(f"[BibbiProduct] Error getting unmapped products: {e}")
             return []
+
+    def _fetch_product_details(self, ean: str) -> Dict[str, Any]:
+        """
+        Fetch full product record from products table
+
+        Args:
+            ean: Product EAN barcode
+
+        Returns:
+            Dict with all product fields, or minimal dict if not found
+        """
+        try:
+            # NOTE: Use raw client to bypass tenant filter (products table has no tenant_id)
+            result = self.db.client.table("products")\
+                .select("*")\
+                .eq("ean", ean)\
+                .execute()
+
+            if result.data and len(result.data) > 0:
+                product = result.data[0]
+                print(f"[BibbiProduct] Fetched product details for EAN {ean}: {product.get('functional_name', 'N/A')}")
+                return product
+            else:
+                # Product not found - return minimal dict with just EAN
+                print(f"[BibbiProduct] WARNING: Product {ean} not found in products table")
+                return {
+                    "ean": ean,
+                    "functional_name": None,
+                    "description": None
+                }
+
+        except Exception as e:
+            print(f"[BibbiProduct] Error fetching product details for {ean}: {e}")
+            # Return minimal dict on error
+            return {
+                "ean": ean,
+                "functional_name": None,
+                "description": None
+            }
 
     def clear_cache(self) -> None:
         """Clear product matching cache"""
