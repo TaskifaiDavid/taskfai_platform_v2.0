@@ -12,17 +12,17 @@ import tempfile
 import openpyxl
 from pathlib import Path
 from datetime import datetime
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock, MagicMock, patch
 from decimal import Decimal
 
-from app.services.bibbi.processors.aromateque_processor import BibbιAromatequeProcessor
-from app.services.bibbi.processors.boxnox_processor import BibbιBoxnoxProcessor
-from app.services.bibbi.processors.cdlc_processor import BibbιCDLCProcessor
-from app.services.bibbi.processors.galilu_processor import BibbιGaliluProcessor
-from app.services.bibbi.processors.liberty_processor import BibbιLibertyProcessor
-from app.services.bibbi.processors.selfridges_processor import BibbιSelfridgesProcessor
-from app.services.bibbi.processors.skins_nl_processor import BibbιSkinsNLProcessor
-from app.services.bibbi.processors.skins_sa_processor import BibbιSkinsSAProcessor
+from app.services.bibbi.processors.aromateque_processor import AromatequProcessor
+from app.services.bibbi.processors.boxnox_processor import BoxnoxProcessor
+from app.services.bibbi.processors.cdlc_processor import CDLCProcessor
+from app.services.bibbi.processors.galilu_processor import GaliluProcessor
+from app.services.bibbi.processors.liberty_processor import LibertyProcessor
+from app.services.bibbi.processors.selfridges_processor import SelfridgesProcessor
+from app.services.bibbi.processors.skins_nl_processor import SkinsNLProcessor
+from app.services.bibbi.processors.skins_sa_processor import SkinsSAProcessor
 
 
 # ============================================
@@ -58,7 +58,7 @@ class TestBoxnoxProcessor:
 
     @pytest.fixture
     def processor(self, mock_bibbi_db, test_reseller_id):
-        return BibbιBoxnoxProcessor(test_reseller_id, mock_bibbi_db)
+        return BoxnoxProcessor(test_reseller_id, mock_bibbi_db)
 
     def test_process_valid_file(self, processor, test_batch_id):
         """Test processing valid Boxnox file"""
@@ -122,7 +122,7 @@ class TestGaliluProcessor:
 
     @pytest.fixture
     def processor(self, mock_bibbi_db, test_reseller_id):
-        return BibbιGaliluProcessor(test_reseller_id, mock_bibbi_db)
+        return GaliluProcessor(test_reseller_id, mock_bibbi_db)
 
     def test_process_valid_file(self, processor, test_batch_id):
         """Test processing valid Galilu file"""
@@ -180,7 +180,7 @@ class TestSkinsSAProcessor:
 
     @pytest.fixture
     def processor(self, mock_bibbi_db, test_reseller_id):
-        return BibbιSkinsSAProcessor(test_reseller_id, mock_bibbi_db)
+        return SkinsSAProcessor(test_reseller_id, mock_bibbi_db)
 
     def test_process_valid_file(self, processor, test_batch_id):
         """Test processing valid Skins SA file"""
@@ -217,14 +217,14 @@ class TestProcessorValidation:
     def processor(self, request, mock_bibbi_db, test_reseller_id):
         """Parametrized fixture for all processors"""
         processor_map = {
-            "boxnox": BibbιBoxnoxProcessor,
-            "galilu": BibbιGaliluProcessor,
-            "skins_sa": BibbιSkinsSAProcessor,
-            "cdlc": BibbιCDLCProcessor,
-            "liberty": BibbιLibertyProcessor,
-            "selfridges": BibbιSelfridgesProcessor,
-            "skins_nl": BibbιSkinsNLProcessor,
-            "aromateque": BibbιAromatequeProcessor,
+            "boxnox": BoxnoxProcessor,
+            "galilu": GaliluProcessor,
+            "skins_sa": SkinsSAProcessor,
+            "cdlc": CDLCProcessor,
+            "liberty": LibertyProcessor,
+            "selfridges": SelfridgesProcessor,
+            "skins_nl": SkinsNLProcessor,
+            "aromateque": AromatequProcessor,
         }
         return processor_map[request.param](test_reseller_id, mock_bibbi_db)
 
@@ -251,7 +251,7 @@ class TestProcessorErrorHandling:
 
     @pytest.fixture
     def processor(self, mock_bibbi_db, test_reseller_id):
-        return BibbιBoxnoxProcessor(test_reseller_id, mock_bibbi_db)
+        return BoxnoxProcessor(test_reseller_id, mock_bibbi_db)
 
     def test_handles_corrupted_file(self, processor, test_batch_id):
         """Test handling of corrupted Excel file"""
@@ -288,7 +288,7 @@ class TestDataTransformation:
 
     @pytest.fixture
     def processor(self, mock_bibbi_db, test_reseller_id):
-        return BibbιBoxnoxProcessor(test_reseller_id, mock_bibbi_db)
+        return BoxnoxProcessor(test_reseller_id, mock_bibbi_db)
 
     def test_transforms_numeric_values_correctly(self, processor, test_batch_id):
         """Test numeric value transformations"""
@@ -351,7 +351,7 @@ class TestStoreExtraction:
 
     @pytest.fixture
     def processor(self, mock_bibbi_db, test_reseller_id):
-        return BibbιSkinsSAProcessor(test_reseller_id, mock_bibbi_db)
+        return SkinsSAProcessor(test_reseller_id, mock_bibbi_db)
 
     def test_extracts_store_information(self, processor, test_batch_id):
         """Test that processors extract store information when available"""
@@ -374,3 +374,142 @@ class TestStoreExtraction:
             assert hasattr(result, "stores")
 
             Path(tmp.name).unlink()
+
+
+# ============================================
+# LIBERTY PROCESSOR TESTS
+# ============================================
+
+class TestLibertyProcessor:
+    """Test Liberty processor with product matching"""
+
+    @pytest.fixture
+    def processor(self, test_reseller_id):
+        # Create processor with just reseller_id
+        processor = LibertyProcessor(test_reseller_id)
+        # Set the cache directly to avoid DB calls
+        processor._reseller_cache = {"sales_channel": "B2B", "reseller": "Liberty"}
+        return processor
+
+    @patch('app.core.bibbi.get_bibbi_db')
+    @patch('app.services.bibbi.product_service.get_product_service')
+    def test_transform_row_with_product_matching(self, mock_get_service, mock_get_db, processor, test_batch_id):
+        """Test Liberty row transformation with product service matching"""
+        # Mock product service to return Dict (not string)
+        mock_product_service = Mock()
+        mock_product_service.match_or_create_product.return_value = {
+            "ean": "1234567890123",
+            "functional_name": "Test Product",
+            "description": "Test Description",
+            "category_id": "test-category-id"
+        }
+        mock_get_service.return_value = mock_product_service
+        mock_get_db.return_value = Mock()
+
+        # Create test row data (Liberty format)
+        raw_row = {
+            "Item ID | Colour": "000834429 | 98-NO COLOUR",
+            "Item": "Test Product",
+            "Sales Qty Un": 10,
+            "Sales Inc VAT £ ": 150.50,
+            "store_identifier": "flagship",
+            "_file_date": datetime(2024, 1, 15)
+        }
+
+        # Transform row
+        result = processor.transform_row(raw_row, test_batch_id)
+
+        # Verify product_id contains the EAN from product match
+        assert result["product_id"] == "1234567890123"
+
+        # Verify functional_name is populated from product match
+        assert result["functional_name"] == "Test Product"
+
+        # Verify product service was called correctly
+        mock_product_service.match_or_create_product.assert_called_once_with(
+            vendor_code="834429",  # Liberty code with leading zeros stripped
+            product_name="Test Product",
+            vendor_name="liberty"
+        )
+
+        # Verify other fields
+        assert result["quantity"] == 10
+        assert result["sales_local_currency"] == 150.50
+        assert result["store_identifier"] == "flagship"
+        assert result["year"] == 2024
+        assert result["month"] == 1
+
+    def test_base_row_includes_sales_channel(self, processor, test_batch_id):
+        """Test that base row includes sales_channel field"""
+        # Verify sales_channel is cached
+        assert processor._reseller_cache["sales_channel"] == "B2B"
+
+        # Create base row
+        base_row = processor._create_base_row(test_batch_id)
+
+        # Verify sales_channel is included
+        assert "sales_channel" in base_row
+        assert base_row["sales_channel"] == "B2B"
+
+        # Verify other required fields
+        assert base_row["tenant_id"] == "bibbi"
+        assert base_row["reseller_id"] == processor.reseller_id
+        assert base_row["batch_id"] == test_batch_id
+        assert base_row["vendor_name"] == "liberty"
+        assert base_row["currency"] == "GBP"
+
+    @patch('app.core.bibbi.get_bibbi_db')
+    @patch('app.services.bibbi.product_service.get_product_service')
+    def test_handles_product_matching_failure(self, mock_get_service, mock_get_db, processor, test_batch_id):
+        """Test that processor handles product matching failures gracefully"""
+        # Mock product service to raise exception
+        mock_product_service = Mock()
+        mock_product_service.match_or_create_product.side_effect = Exception("Database connection failed")
+        mock_get_service.return_value = mock_product_service
+        mock_get_db.return_value = Mock()
+
+        raw_row = {
+            "Item ID | Colour": "000834429 | 98-NO COLOUR",
+            "Item": "Test Product",
+            "Sales Qty Un": 10,
+            "Sales Inc VAT £ ": 150.50,
+            "store_identifier": "flagship",
+            "_file_date": datetime(2024, 1, 15)
+        }
+
+        # Should raise ValueError with meaningful message
+        with pytest.raises(ValueError) as exc_info:
+            processor.transform_row(raw_row, test_batch_id)
+
+        assert "Failed to match product" in str(exc_info.value)
+        assert "834429" in str(exc_info.value)  # Liberty code in error message
+
+    @patch('app.core.bibbi.get_bibbi_db')
+    @patch('app.services.bibbi.product_service.get_product_service')
+    def test_returns_handling(self, mock_get_service, mock_get_db, processor, test_batch_id):
+        """Test that negative quantities are marked as returns"""
+        mock_product_service = Mock()
+        mock_product_service.match_or_create_product.return_value = {
+            "ean": "1234567890123",
+            "functional_name": "Test Product",
+            "description": "Test Description"
+        }
+        mock_get_service.return_value = mock_product_service
+        mock_get_db.return_value = Mock()
+
+        # Test row with negative quantity (return)
+        raw_row = {
+            "Item ID | Colour": "000834429 | 98-NO COLOUR",
+            "Item": "Test Product",
+            "Sales Qty Un": -5,  # Return
+            "Sales Inc VAT £ ": -75.25,
+            "store_identifier": "flagship",
+            "_file_date": datetime(2024, 1, 15)
+        }
+
+        result = processor.transform_row(raw_row, test_batch_id)
+
+        # Verify return flags
+        assert result["is_return"] is True
+        assert result["return_quantity"] == 5  # Absolute value
+        assert result["quantity"] == -5  # Original negative value
