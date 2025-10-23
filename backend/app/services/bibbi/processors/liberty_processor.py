@@ -463,15 +463,14 @@ class LibertyProcessor(BibbiBseProcessor):
         # Geography - Liberty is always UK
         transformed["country"] = "UK"
 
-        # City and sales_channel based on store type
+        # City based on store type
+        # Note: sales_channel is already set by base processor from resellers table ("B2B")
         if store_identifier.lower() in ["online", "internet"]:
             # Online/e-commerce sales
             transformed["city"] = "online"
-            transformed["sales_channel"] = "online"
         else:
             # Physical store sales (flagship, etc.)
             transformed["city"] = "London"
-            transformed["sales_channel"] = "retail"
 
         # Ensure upload_batch_id is explicitly set
         # BIBBI schema uses upload_batch_id (not batch_id or upload_id)
