@@ -73,6 +73,8 @@ class BibbιSalesInsertionService:
             bibbi_db: BIBBI-specific Supabase client
         """
         self.db = bibbi_db
+        # Cache for store details to avoid repeated queries
+        self._store_cache: Dict[str, Dict[str, Any]] = {}
 
     def insert_validated_sales(
         self,
@@ -198,7 +200,19 @@ class BibbιSalesInsertionService:
                 # Convert store_identifier to store_id using mapping
                 store_identifier = row.get("store_identifier")
                 if store_identifier and store_identifier in store_mapping:
-                    cleaned_row["store_id"] = store_mapping[store_identifier]
+                    store_id = store_mapping[store_identifier]
+                    cleaned_row["store_id"] = store_id
+
+                    # Populate geography fields from stores table
+                    store_details = self._get_store_details(store_id)
+                    if store_details:
+                        # Only populate if not already set by processor
+                        if not cleaned_row.get("country"):
+                            cleaned_row["country"] = store_details.get("country")
+                        if not cleaned_row.get("region"):
+                            cleaned_row["region"] = store_details.get("region")
+                        if not cleaned_row.get("city"):
+                            cleaned_row["city"] = store_details.get("city")
                 elif "store_id" not in cleaned_row:
                     # No mapping available and no store_id - this will fail FK constraint
                     print(f"[BibbιSalesInsertion] Warning: No store_id mapping for store_identifier='{store_identifier}'")
@@ -329,6 +343,40 @@ class BibbιSalesInsertionService:
             "failed": failed,
             "errors": errors
         }
+
+    def _get_store_details(self, store_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Fetch store details for geography population (with caching)
+
+        Args:
+            store_id: Store UUID
+
+        Returns:
+            Dict with country, region, city, store_name or None
+        """
+        # Check cache first
+        if store_id in self._store_cache:
+            return self._store_cache[store_id]
+
+        try:
+            # NOTE: Use raw client to bypass tenant filter (stores table has no tenant_id)
+            result = self.db.client.table("stores")\
+                .select("country, region, city, store_name")\
+                .eq("store_id", store_id)\
+                .execute()
+
+            if result.data and len(result.data) > 0:
+                store_details = result.data[0]
+                # Cache for subsequent calls
+                self._store_cache[store_id] = store_details
+                return store_details
+            else:
+                print(f"[BibbιSalesInsertion] Store {store_id} not found in stores table")
+                return None
+
+        except Exception as e:
+            print(f"[BibbιSalesInsertion] Error fetching store details: {e}")
+            return None
 
     def update_upload_status(
         self,

@@ -348,7 +348,7 @@ class LibertyProcessor(BibbiBseProcessor):
         product_name = raw_row.get("Item")
         product_name_str = str(product_name).strip() if product_name else None
 
-        # Use product matcher to get BIBBI EAN
+        # Use product matcher to get BIBBI product data
         # This will match existing products or auto-create with temporary EAN
         try:
             from app.services.bibbi.product_service import get_product_service
@@ -357,14 +357,16 @@ class LibertyProcessor(BibbiBseProcessor):
             bibbi_db = get_bibbi_db()
             product_service = get_product_service(bibbi_db)
 
-            # Match or create product
-            matched_ean = product_service.match_or_create_product(
+            # Match or create product (returns full product dict)
+            product_match = product_service.match_or_create_product(
                 vendor_code=liberty_code,
                 product_name=product_name_str,
                 vendor_name="liberty"
             )
 
-            transformed["product_id"] = matched_ean
+            # Extract EAN and functional_name from product match
+            transformed["product_id"] = product_match["ean"]
+            transformed["functional_name"] = product_match.get("functional_name")
 
         except Exception as e:
             raise ValueError(f"Failed to match product '{liberty_code}' ('{product_name_str}'): {e}")

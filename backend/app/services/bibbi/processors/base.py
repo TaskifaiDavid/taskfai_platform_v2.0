@@ -84,6 +84,8 @@ class BibbiBseProcessor(ABC):
         """
         self.reseller_id = reseller_id
         self.tenant_id = BIBBI_TENANT_ID
+        # Cache for reseller details to avoid repeated queries
+        self._reseller_cache: Optional[Dict[str, Any]] = None
 
     @abstractmethod
     def get_vendor_name(self) -> str:
@@ -404,6 +406,41 @@ class BibbiBseProcessor(ABC):
         """Calculate quarter from month (1-4)"""
         return (month - 1) // 3 + 1
 
+    def _get_reseller_sales_channel(self) -> Optional[str]:
+        """
+        Fetch sales_channel from resellers table (with caching)
+
+        Returns:
+            sales_channel value ("B2B", "B2C", "B2B2C", etc.) or None
+        """
+        # Check cache first
+        if self._reseller_cache is not None:
+            return self._reseller_cache.get("sales_channel")
+
+        try:
+            # Import here to avoid circular dependency
+            from app.core.bibbi import get_bibbi_db
+
+            bibbi_db = get_bibbi_db()
+
+            # NOTE: Use raw client to bypass tenant filter (resellers table has no tenant_id)
+            result = bibbi_db.client.table("resellers")\
+                .select("sales_channel, reseller")\
+                .eq("reseller_id", self.reseller_id)\
+                .execute()
+
+            if result.data and len(result.data) > 0:
+                # Cache for subsequent calls
+                self._reseller_cache = result.data[0]
+                return self._reseller_cache.get("sales_channel")
+            else:
+                print(f"[BibbiProcessor] Reseller {self.reseller_id} not found in resellers table")
+                return None
+
+        except Exception as e:
+            print(f"[BibbiProcessor] Error fetching reseller details: {e}")
+            return None
+
     def _create_base_row(self, batch_id: str) -> Dict[str, Any]:
         """
         Create base row with common fields
@@ -414,9 +451,10 @@ class BibbiBseProcessor(ABC):
         - batch_id
         - vendor_name
         - currency
+        - sales_channel (from resellers table)
         - created_at
         """
-        return {
+        base_row = {
             "tenant_id": self.tenant_id,
             "reseller_id": self.reseller_id,
             "batch_id": batch_id,
@@ -424,3 +462,10 @@ class BibbiBseProcessor(ABC):
             "currency": self.get_currency(),
             "created_at": datetime.utcnow().isoformat()
         }
+
+        # Fetch and add sales_channel from resellers table
+        sales_channel = self._get_reseller_sales_channel()
+        if sales_channel:
+            base_row["sales_channel"] = sales_channel
+
+        return base_row
