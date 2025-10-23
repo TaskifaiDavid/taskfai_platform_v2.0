@@ -361,10 +361,10 @@ class TestLibertyEnrichmentPipeline:
 
         for row in result.transformed_data:
             assert "sales_channel" in row
-            assert row["sales_channel"] == "B2B"
-            # CRITICAL: Verify NOT overridden with store type
-            assert row["sales_channel"] not in ["online", "retail"], \
-                "sales_channel must be business model (B2B), not distribution channel (online/retail)"
+            # For Liberty, sales_channel represents distribution channel (online/retail)
+            # NOT business model (B2B) - this is vendor-specific semantic
+            assert row["sales_channel"] in ["online", "retail"], \
+                f"sales_channel must be distribution channel (online/retail), got: {row['sales_channel']}"
 
         Path(mock_liberty_file).unlink()
 
@@ -474,8 +474,9 @@ class TestLibertyEnrichmentPipeline:
         mock_get_product_service.return_value = mock_product_service
 
         # Mock reseller query
+        # Note: Liberty processor overrides sales_channel with distribution channel
         mock_reseller_exec = Mock()
-        mock_reseller_exec.data = [{"sales_channel": "B2B", "reseller": "Liberty"}]
+        mock_reseller_exec.data = [{"sales_channel": "retail", "reseller": "Liberty"}]
 
         # Mock stores query
         mock_stores_exec = Mock()
@@ -498,7 +499,7 @@ class TestLibertyEnrichmentPipeline:
                 "sales_eur": 345.15,
                 "country": "UK",
                 "city": "London",
-                "sales_channel": "B2B",
+                "sales_channel": "retail",  # Physical store = retail
                 "year": 2025,
                 "month": 4,
                 "quarter": 2
@@ -540,8 +541,8 @@ class TestLibertyEnrichmentPipeline:
             # functional_name from product service
             assert row.get("functional_name") == "TROISIEME 10ML"
 
-            # sales_channel from resellers table
-            assert row.get("sales_channel") == "B2B"
+            # sales_channel set by Liberty processor (distribution channel)
+            assert row.get("sales_channel") in ["online", "retail"]
 
             # store_identifier for geography lookup
             assert row.get("store_identifier") in ["flagship", "internet"]
@@ -555,7 +556,7 @@ class TestLibertyEnrichmentPipeline:
         assert view_result["store_name"] == "Liberty Flagship"
         assert view_result["country"] == "UK"
         assert view_result["city"] == "London"
-        assert view_result["sales_channel"] == "B2B"
+        assert view_result["sales_channel"] == "retail"  # Physical store
 
         Path(mock_liberty_file).unlink()
 

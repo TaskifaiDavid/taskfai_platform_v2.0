@@ -260,8 +260,26 @@ class BibbιValidationService:
         if product_ean:
             if not isinstance(product_ean, str):
                 raise ValueError(f"product_ean must be string, got {type(product_ean)}")
-            # Allow temporary identifiers (TEMP_*) or 13-digit EANs
-            if not (product_ean.startswith("TEMP_") or (len(product_ean) == 13 and product_ean.isdigit())):
+
+            # Enhanced validation for temporary identifiers
+            if product_ean.startswith("TEMP_"):
+                # Max length enforcement (prevent database issues)
+                if len(product_ean) > 100:
+                    raise ValueError(f"TEMP_ identifier exceeds max length of 100 chars: {len(product_ean)}")
+
+                # Structure validation: TEMP_VENDOR_NAME_HASH
+                parts = product_ean.split("_", 2)  # Split into [TEMP, VENDOR, NAME_HASH]
+                if len(parts) < 3:
+                    raise ValueError(f"Invalid TEMP_ format, expected TEMP_VENDOR_NAME_HASH, got: {product_ean}")
+
+                # Validate vendor name (known BIBBI vendors)
+                valid_vendors = ["LIBERTY", "GALILU", "BOXNOX", "SKINS", "SELFRIDGES", "CDLC", "AROMATEQUE"]
+                vendor = parts[1]
+                if vendor not in valid_vendors:
+                    raise ValueError(f"Invalid TEMP_ vendor '{vendor}', must be one of: {', '.join(valid_vendors)}")
+
+            # Standard EAN validation (13 digits)
+            elif not (len(product_ean) == 13 and product_ean.isdigit()):
                 raise ValueError(f"product_ean must be 13-digit EAN or TEMP_* identifier, got: {product_ean}")
 
         # Validate reseller_id (UUID format)

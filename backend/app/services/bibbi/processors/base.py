@@ -451,8 +451,12 @@ class BibbiBseProcessor(ABC):
         - batch_id
         - vendor_name
         - currency
-        - sales_channel (from resellers table)
+        - sales_channel (from resellers table, can be overridden by child processors)
         - created_at
+
+        NOTE: Child processors (like LibertyProcessor) can override sales_channel
+        if their business logic requires a different semantic (e.g., distribution channel
+        vs. business model).
         """
         base_row = {
             "tenant_id": self.tenant_id,
@@ -463,7 +467,8 @@ class BibbiBseProcessor(ABC):
             "created_at": datetime.utcnow().isoformat()
         }
 
-        # Fetch and add sales_channel from resellers table
+        # Fetch and add sales_channel from resellers table (default business model)
+        # Child processors may override this for vendor-specific semantics
         sales_channel = self._get_reseller_sales_channel()
         if sales_channel:
             base_row["sales_channel"] = sales_channel
