@@ -15,6 +15,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 import openpyxl
 import re
+import hashlib
 
 from .base import BibbiBseProcessor
 
@@ -370,7 +371,13 @@ class LibertyProcessor(BibbiBseProcessor):
             # Graceful degradation: if matching fails, use product name directly
             print(f"[Liberty] Product matching failed for '{product_name_str}': {e}")
             print(f"[Liberty] Using Liberty product name as fallback")
-            transformed["product_ean"] = f"TEMP_LIBERTY_{product_name_str[:40]}"  # Temporary EAN
+
+            # Generate unique temporary EAN with hash to prevent collisions
+            # Format: TEMP_LIBERTY_{product_name[:20]}_{hash[:8]}
+            product_hash = hashlib.md5(
+                f"{product_name_str}_{datetime.utcnow().isoformat()}".encode()
+            ).hexdigest()[:8]
+            transformed["product_ean"] = f"TEMP_LIBERTY_{product_name_str[:20]}_{product_hash}"
             transformed["functional_name"] = product_name_str
 
         # Store product name for reference

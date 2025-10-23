@@ -467,5 +467,10 @@ class BibbiBseProcessor(ABC):
         sales_channel = self._get_reseller_sales_channel()
         if sales_channel:
             base_row["sales_channel"] = sales_channel
+        else:
+            # Default to B2B for reseller data if not explicitly set
+            # Reseller uploads are typically B2B by nature
+            print(f"[BibbiBseProcessor] WARNING: Reseller {self.reseller_id} missing sales_channel, using 'B2B' as default")
+            base_row["sales_channel"] = "B2B"
 
         return base_row

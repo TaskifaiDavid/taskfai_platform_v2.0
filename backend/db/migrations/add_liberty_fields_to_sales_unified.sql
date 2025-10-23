@@ -75,6 +75,7 @@ CREATE INDEX IF NOT EXISTS idx_sales_unified_functional_name ON sales_unified(fu
 CREATE INDEX IF NOT EXISTS idx_sales_unified_sales_channel ON sales_unified(sales_channel);
 CREATE INDEX IF NOT EXISTS idx_sales_unified_country ON sales_unified(country);
 CREATE INDEX IF NOT EXISTS idx_sales_unified_city ON sales_unified(city);
+CREATE INDEX IF NOT EXISTS idx_sales_unified_upload_batch_id ON sales_unified(upload_batch_id);
 
 -- Step 5: Add column comments
 COMMENT ON COLUMN sales_unified.product_ean IS 'EAN-13 barcode or temporary vendor code (prefixed with vendor name if no match)';

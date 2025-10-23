@@ -362,6 +362,9 @@ class TestLibertyEnrichmentPipeline:
         for row in result.transformed_data:
             assert "sales_channel" in row
             assert row["sales_channel"] == "B2B"
+            # CRITICAL: Verify NOT overridden with store type
+            assert row["sales_channel"] not in ["online", "retail"], \
+                "sales_channel must be business model (B2B), not distribution channel (online/retail)"
 
         Path(mock_liberty_file).unlink()
 

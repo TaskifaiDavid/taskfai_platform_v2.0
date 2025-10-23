@@ -265,6 +265,150 @@ git push
 
 ---
 
+## TEMP_ EAN Cleanup Process
+
+### What are TEMP_ EANs?
+
+Temporary product identifiers created when Liberty product names don't match existing products in the database.
+
+**Format**: `TEMP_LIBERTY_{product_name[:20]}_{hash[:8]}`
+
+**Example**: `TEMP_LIBERTY_TROISIEME 10ML_a1b2c3d4`
+
+The hash suffix (8 characters) prevents collisions when the same product name appears in multiple uploads.
+
+### When to Clean Up
+
+1. **After Product Matching**: Once products are properly matched and added to products table with real EANs
+2. **Periodic Maintenance**: Monthly review of TEMP_ EANs to ensure they're resolved
+3. **Before Reporting**: Analytics should filter or flag TEMP_ EANs to avoid confusion
+
+### Cleanup Queries
+
+#### Find All Temporary EANs
+```sql
+-- Identify TEMP_ EANs that need resolution
+SELECT
+    product_ean,
+    functional_name,
+    COUNT(*) as usage_count,
+    COUNT(DISTINCT upload_batch_id) as num_uploads,
+    MIN(sale_date) as first_seen,
+    MAX(sale_date) as last_seen,
+    SUM(sales_eur) as total_sales_eur
+FROM sales_unified
+WHERE product_ean LIKE 'TEMP_%'
+GROUP BY product_ean, functional_name
+ORDER BY usage_count DESC;
+```
+
+#### Update to Real EAN
+```sql
+-- After product is added to products table with real EAN
+-- Update all sales records to use the real EAN
+UPDATE sales_unified
+SET product_ean = '{real_ean}'  -- e.g., '9000000834429'
+WHERE product_ean = 'TEMP_LIBERTY_{old_identifier}';  -- e.g., 'TEMP_LIBERTY_TROISIEME 10ML_a1b2c3d4'
+```
+
+#### Bulk Cleanup Script
+```sql
+-- Create mapping table for TEMP_ → real EAN conversions
+CREATE TEMP TABLE temp_ean_mappings (
+    temp_ean TEXT PRIMARY KEY,
+    real_ean TEXT NOT NULL,
+    product_name TEXT
+);
+
+-- Insert mappings (example)
+INSERT INTO temp_ean_mappings VALUES
+    ('TEMP_LIBERTY_TROISIEME 10ML_a1b2c3d4', '9000000834429', 'TROISIEME 10ML'),
+    ('TEMP_LIBERTY_AUTRE PRODUIT_x9y8z7w6', '9000000834430', 'AUTRE PRODUIT');
+
+-- Bulk update
+UPDATE sales_unified su
+SET product_ean = tem.real_ean
+FROM temp_ean_mappings tem
+WHERE su.product_ean = tem.temp_ean;
+
+-- Verify cleanup
+SELECT COUNT(*) as remaining_temp_eans
+FROM sales_unified
+WHERE product_ean LIKE 'TEMP_%';
+```
+
+### Best Practices
+
+#### Monitoring
+- **Set up alerts** for TEMP_ EAN growth (>100 records should trigger investigation)
+- **Track resolution time** (target: resolve within 24-48 hours of upload)
+- **Monitor by vendor** (Liberty should have minimal TEMP_ EANs with proper product matching)
+
+#### Resolution Workflow
+1. **Identify** unmatched products using the query above
+2. **Match** product names to products table using `products.liberty_name`
+3. **Update** products table if product doesn't exist:
+   ```sql
+   INSERT INTO products (ean, product_name, liberty_name, brand, active)
+   VALUES ('9000000834429', 'TROISIEME 10ML', 'TROISIEME 10ML', 'BIBBI', true);
+   ```
+4. **Replace** TEMP_ EAN with real EAN in sales_unified
+5. **Verify** no orphaned TEMP_ EANs remain
+
+#### Audit Trail
+Keep log of all TEMP_ → real EAN mappings for future reference:
+```sql
+CREATE TABLE temp_ean_resolution_log (
+    id SERIAL PRIMARY KEY,
+    temp_ean TEXT NOT NULL,
+    real_ean TEXT NOT NULL,
+    product_name TEXT,
+    resolved_by TEXT,  -- User who resolved it
+    resolved_at TIMESTAMP DEFAULT NOW(),
+    num_records_updated INT
+);
+
+-- Log each resolution
+INSERT INTO temp_ean_resolution_log
+    (temp_ean, real_ean, product_name, resolved_by, num_records_updated)
+SELECT
+    'TEMP_LIBERTY_TROISIEME 10ML_a1b2c3d4',
+    '9000000834429',
+    'TROISIEME 10ML',
+    current_user,
+    COUNT(*)
+FROM sales_unified
+WHERE product_ean = 'TEMP_LIBERTY_TROISIEME 10ML_a1b2c3d4';
+```
+
+### Analytics Considerations
+
+When generating reports, handle TEMP_ EANs appropriately:
+
+```sql
+-- Option 1: Exclude from analytics
+SELECT
+    product_ean,
+    functional_name,
+    SUM(sales_eur) as total_sales
+FROM sales_unified
+WHERE product_ean NOT LIKE 'TEMP_%'  -- Exclude temporary EANs
+GROUP BY product_ean, functional_name;
+
+-- Option 2: Flag as unmatched
+SELECT
+    CASE
+        WHEN product_ean LIKE 'TEMP_%' THEN 'UNMATCHED'
+        ELSE product_ean
+    END as product_status,
+    functional_name,
+    SUM(sales_eur) as total_sales
+FROM sales_unified
+GROUP BY product_status, functional_name;
+```
+
+---
+
 ## Support
 
 For questions or issues:
@@ -272,6 +416,7 @@ For questions or issues:
 2. Review backend logs for processor errors
 3. Verify products.liberty_name has proper mappings
 4. Check stores table has Liberty stores configured
+5. Review TEMP_ EAN cleanup status regularly
 
 ## Completion Status
 
