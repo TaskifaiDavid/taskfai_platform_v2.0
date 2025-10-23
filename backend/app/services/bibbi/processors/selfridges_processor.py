@@ -35,7 +35,7 @@ class SelfridgesProcessor(BibbiBseProcessor):
         
         ean = raw_row.get("EAN") or raw_row.get("Product EAN")
         if not ean: raise ValueError("Missing EAN")
-        t["product_id"] = self._validate_ean(ean)
+        t["product_ean"] = self._validate_ean(ean)
         
         qty = raw_row.get("Sold") or raw_row.get("Quantity")
         if qty is None: raise ValueError("Missing Sold/Quantity")

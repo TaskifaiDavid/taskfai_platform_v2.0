@@ -328,27 +328,16 @@ class LibertyProcessor(BibbiBseProcessor):
         # Start with base row
         transformed = self._create_base_row(batch_id)
 
-        # Extract Liberty product code from "Item ID | Colour" format
-        # NOTE: These are Liberty's internal codes, NOT real EAN barcodes
-        ean_with_color = raw_row.get("Item ID | Colour")
-        if not ean_with_color:
-            raise ValueError("Missing 'Item ID | Colour'")
-
-        # Parse Liberty code: extract everything before " | "
-        if isinstance(ean_with_color, str) and '|' in ean_with_color:
-            liberty_code = ean_with_color.split('|')[0].strip()
-        else:
-            liberty_code = str(ean_with_color).strip()
-
-        # Clean Liberty code (remove leading zeros for matching)
-        if liberty_code.isdigit():
-            liberty_code = liberty_code.lstrip('0') or '0'
-
-        # Extract product name for matching
+        # Extract product NAME from Liberty file for matching
+        # Liberty files have product names in "Item" column (Column F)
         product_name = raw_row.get("Item")
         product_name_str = str(product_name).strip() if product_name else None
 
+        if not product_name_str:
+            raise ValueError("Missing product name in 'Item' column")
+
         # Use product matcher to get BIBBI product data
+        # Match by Liberty product NAME against products.liberty_name column
         # This will match existing products or auto-create with temporary EAN
         try:
             from app.services.bibbi.product_service import get_product_service
@@ -357,19 +346,32 @@ class LibertyProcessor(BibbiBseProcessor):
             bibbi_db = get_bibbi_db()
             product_service = get_product_service(bibbi_db)
 
-            # Match or create product (returns full product dict)
+            # Match using product NAME (not Liberty internal code)
+            # product_service will:
+            # 1. Try exact match on products.liberty_name
+            # 2. Try fuzzy match on product names
+            # 3. Auto-create with product name as temporary EAN if no match
             product_match = product_service.match_or_create_product(
-                vendor_code=liberty_code,
+                vendor_code=product_name_str,  # Use product NAME for matching
                 product_name=product_name_str,
                 vendor_name="liberty"
             )
 
             # Extract EAN and functional_name from product match
-            transformed["product_id"] = product_match["ean"]
+            transformed["product_ean"] = product_match["ean"]  # RENAMED: product_id → product_ean
             transformed["functional_name"] = product_match.get("functional_name")
 
+            # Fallback: if no functional_name from match, use Liberty product name
+            if not transformed["functional_name"]:
+                transformed["functional_name"] = product_name_str
+                print(f"[Liberty] No functional_name from match, using Liberty name: {product_name_str}")
+
         except Exception as e:
-            raise ValueError(f"Failed to match product '{liberty_code}' ('{product_name_str}'): {e}")
+            # Graceful degradation: if matching fails, use product name directly
+            print(f"[Liberty] Product matching failed for '{product_name_str}': {e}")
+            print(f"[Liberty] Using Liberty product name as fallback")
+            transformed["product_ean"] = f"TEMP_LIBERTY_{product_name_str[:40]}"  # Temporary EAN
+            transformed["functional_name"] = product_name_str
 
         # Store product name for reference
         if product_name_str:
@@ -454,6 +456,27 @@ class LibertyProcessor(BibbiBseProcessor):
         # This was set during extract_rows based on which store column had the data
         store_identifier = raw_row.get("store_identifier", "flagship")
         transformed["store_identifier"] = store_identifier
+
+        # Customer ID - Liberty is B2B reseller data, no customer information
+        transformed["customer_id"] = None
+
+        # Geography - Liberty is always UK
+        transformed["country"] = "UK"
+
+        # City and sales_channel based on store type
+        if store_identifier.lower() in ["online", "internet"]:
+            # Online/e-commerce sales
+            transformed["city"] = "online"
+            transformed["sales_channel"] = "online"
+        else:
+            # Physical store sales (flagship, etc.)
+            transformed["city"] = "London"
+            transformed["sales_channel"] = "retail"
+
+        # Ensure upload_batch_id is explicitly set
+        # BIBBI schema uses upload_batch_id (not batch_id or upload_id)
+        # The batch_id parameter passed to transform_row is actually the upload_batch_id
+        transformed["upload_batch_id"] = batch_id
 
         return transformed
 

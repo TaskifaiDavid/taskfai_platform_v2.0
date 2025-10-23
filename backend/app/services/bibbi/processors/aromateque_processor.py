@@ -57,7 +57,7 @@ class AromatequProcessor(BibbiBseProcessor):
         ean = raw_row.get("EAN") or raw_row.get("Brand")
         if not ean: raise ValueError("Missing EAN/Brand")
         try:
-            t["product_id"] = self._validate_ean(ean)
+            t["product_ean"] = self._validate_ean(ean)
         except:
             raise ValueError(f"Invalid EAN: {ean}")
         
