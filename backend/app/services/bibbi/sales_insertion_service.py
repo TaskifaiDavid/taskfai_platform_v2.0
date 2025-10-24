@@ -193,6 +193,7 @@ class BibbιSalesInsertionService:
                     "product_name_raw",   # Not in schema (temporary field)
                     "is_return",          # Use transaction_type='return' if needed
                     "currency",           # Use local_currency instead
+                    "store_identifier",   # Not in schema (only store_id exists)
                 ]}
 
                 # Convert store_identifier to store_id using mapping
@@ -301,6 +302,7 @@ class BibbιSalesInsertionService:
                     "product_name_raw",   # Temporary field
                     "is_return",          # Use transaction_type
                     "currency",           # Use local_currency
+                    "store_identifier",   # Not in schema (only store_id exists)
                 ]}
 
                 # Convert store_identifier to store_id using mapping
@@ -363,7 +365,7 @@ class BibbιSalesInsertionService:
 
         try:
             # NOTE: Use raw client to bypass tenant filter (stores table has no tenant_id)
-            result = self.db.client.table("stores")\
+            result = self.db._client.table("stores")\
                 .select("country, region, city, store_name")\
                 .eq("store_id", store_id)\
                 .execute()
