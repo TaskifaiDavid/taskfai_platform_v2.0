@@ -9,7 +9,7 @@ Validation Rules:
 1. Required fields present
 2. Data types correct (UUID, date, numeric)
 3. Business rules (quantity > 0, sales_eur >= 0)
-4. Foreign key constraints (product_id exists, reseller_id exists, store_id exists)
+4. Foreign key constraints (product_ean exists, reseller_id exists, store_id exists)
 5. Duplicate detection
 """
 
@@ -70,7 +70,7 @@ class BibbιValidationService:
 
     # Required fields for sales_unified schema
     REQUIRED_FIELDS = [
-        "product_id",       # EAN (13 digits)
+        "product_ean",      # EAN (13 digits) - renamed from product_id
         "reseller_id",      # UUID
         "sale_date",        # ISO date string
         "quantity",         # Integer > 0
@@ -162,7 +162,7 @@ class BibbιValidationService:
         Validate foreign key constraints
 
         Checks:
-        - product_id exists in products table
+        - product_ean exists in products table
         - reseller_id exists in resellers table
         - store_id exists in stores table (if provided)
 
@@ -187,12 +187,12 @@ class BibbιValidationService:
             row_number = row_idx + 1
 
             try:
-                # Check product_id (EAN)
-                product_id = row.get("product_id")
-                if product_id and product_id not in product_cache:
-                    if not self._product_exists(product_id):
-                        raise ValueError(f"Product not found: {product_id}")
-                    product_cache.add(product_id)
+                # Check product_ean (EAN)
+                product_ean = row.get("product_ean")
+                if product_ean and product_ean not in product_cache:
+                    if not self._product_exists(product_ean):
+                        raise ValueError(f"Product not found: {product_ean}")
+                    product_cache.add(product_ean)
 
                 # Check reseller_id
                 reseller_id = row.get("reseller_id")
@@ -255,13 +255,32 @@ class BibbιValidationService:
         Raises:
             ValueError: If any field has incorrect type
         """
-        # Validate product_id (EAN - 13 digits)
-        product_id = row.get("product_id")
-        if product_id:
-            if not isinstance(product_id, str):
-                raise ValueError(f"product_id must be string, got {type(product_id)}")
-            if len(product_id) != 13 or not product_id.isdigit():
-                raise ValueError(f"product_id must be 13-digit EAN, got: {product_id}")
+        # Validate product_ean (EAN - 13 digits or temporary identifier)
+        product_ean = row.get("product_ean")
+        if product_ean:
+            if not isinstance(product_ean, str):
+                raise ValueError(f"product_ean must be string, got {type(product_ean)}")
+
+            # Enhanced validation for temporary identifiers
+            if product_ean.startswith("TEMP_"):
+                # Max length enforcement (prevent database issues)
+                if len(product_ean) > 100:
+                    raise ValueError(f"TEMP_ identifier exceeds max length of 100 chars: {len(product_ean)}")
+
+                # Structure validation: TEMP_VENDOR_NAME_HASH
+                parts = product_ean.split("_", 2)  # Split into [TEMP, VENDOR, NAME_HASH]
+                if len(parts) < 3:
+                    raise ValueError(f"Invalid TEMP_ format, expected TEMP_VENDOR_NAME_HASH, got: {product_ean}")
+
+                # Validate vendor name (known BIBBI vendors)
+                valid_vendors = ["LIBERTY", "GALILU", "BOXNOX", "SKINS", "SELFRIDGES", "CDLC", "AROMATEQUE"]
+                vendor = parts[1]
+                if vendor not in valid_vendors:
+                    raise ValueError(f"Invalid TEMP_ vendor '{vendor}', must be one of: {', '.join(valid_vendors)}")
+
+            # Standard EAN validation (13 digits)
+            elif not (len(product_ean) == 13 and product_ean.isdigit()):
+                raise ValueError(f"product_ean must be 13-digit EAN or TEMP_* identifier, got: {product_ean}")
 
         # Validate reseller_id (UUID format)
         reseller_id = row.get("reseller_id")
@@ -377,13 +396,13 @@ class BibbιValidationService:
         if tenant_id != BIBBI_TENANT_ID:
             raise ValueError(f"tenant_id must be '{BIBBI_TENANT_ID}', got: {tenant_id}")
 
-    def _product_exists(self, product_id: str) -> bool:
+    def _product_exists(self, product_ean: str) -> bool:
         """Check if product exists in products table"""
         try:
             # NOTE: Use raw client to bypass tenant filter (products table has no tenant_id)
             result = self.db.client.table("products")\
                 .select("ean")\
-                .eq("ean", product_id)\
+                .eq("ean", product_ean)\
                 .execute()
 
             return result.data and len(result.data) > 0

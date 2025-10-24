@@ -144,7 +144,7 @@ class BoxnoxProcessor(BibbiBseProcessor):
         if not ean_value:
             raise ValueError("Missing Product EAN")
 
-        transformed["product_id"] = self._validate_ean(ean_value)
+        transformed["product_ean"] = self._validate_ean(ean_value)
 
         # Quantity
         qty_value = raw_row.get("Sold Qty")

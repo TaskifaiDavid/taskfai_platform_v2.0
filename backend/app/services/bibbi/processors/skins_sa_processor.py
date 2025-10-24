@@ -171,7 +171,7 @@ class SkinsSAProcessor(BibbiBseProcessor):
             raise ValueError("Missing Stockcode/EAN")
 
         try:
-            transformed["product_id"] = self._validate_ean(ean_value)
+            transformed["product_ean"] = self._validate_ean(ean_value)
         except ValueError as e:
             raise ValueError(f"Invalid EAN: {e}")
 

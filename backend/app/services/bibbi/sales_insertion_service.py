@@ -172,29 +172,27 @@ class BibbιSalesInsertionService:
 
         try:
             # Prepare batch data - ensure only valid BIBBI schema fields
-            # BIBBI sales_unified schema:
-            # - id: auto-generated UUID (NOT sales_id)
-            # - NO tenant_id (not in table)
-            # - upload_id (not batch_id)
-            # - store_id: UUID FK (not store_identifier)
-            # - product_id, reseller_id, customer_id (nullable)
-            # - sale_date, year, month, quarter, week_of_year
-            # - quantity, sales_local_currency, currency, sales_eur
-            # - is_refund (not is_return)
-            # - order_id, sales_channel
-            # - and many other optional fields
+            # BIBBI sales_unified schema (updated 2025-01-23):
+            # - sale_id: auto-generated UUID PRIMARY KEY
+            # - tenant_id, reseller_id, product_ean, store_id, upload_batch_id
+            # - customer_id (nullable), functional_name
+            # - sale_date, quantity, sales_local_currency, local_currency, sales_eur
+            # - year, month, quarter
+            # - sales_channel, country, city
+            # - store_identifier, transaction_type, metadata
+            # - created_at, updated_at
 
             batch_data = []
             for row in batch:
                 # Clean row: remove fields not in BIBBI schema
                 cleaned_row = {k: v for k, v in row.items() if k not in [
-                    "sales_id",  # Auto-generated as 'id'
-                    "tenant_id",  # Not in BIBBI schema
-                    "batch_id",  # Use upload_id instead
-                    "vendor_name",  # Not in schema
-                    "product_name_raw",  # Not in schema
-                    "store_identifier",  # Use store_id (UUID) instead
-                    "is_return",  # Use is_refund instead
+                    "sales_id",           # Auto-generated as 'sale_id'
+                    "tenant_id",          # Auto-injected by BibbιTableQuery
+                    "batch_id",           # Use upload_batch_id instead
+                    "vendor_name",        # Not in schema
+                    "product_name_raw",   # Not in schema (temporary field)
+                    "is_return",          # Use transaction_type='return' if needed
+                    "currency",           # Use local_currency instead
                 ]}
 
                 # Convert store_identifier to store_id using mapping
@@ -255,7 +253,7 @@ class BibbιSalesInsertionService:
                         "row_number": row_num,
                         "error_type": "insertion_error",
                         "error_message": str(e),
-                        "product_id": row.get("product_id"),
+                        "product_ean": row.get("product_ean"),  # UPDATED: product_id → product_ean
                         "sale_date": row.get("sale_date")
                     })
 
@@ -296,8 +294,13 @@ class BibbιSalesInsertionService:
             try:
                 # Clean row and convert store_identifier to store_id
                 cleaned_row = {k: v for k, v in row.items() if k not in [
-                    "sales_id", "tenant_id", "batch_id", "vendor_name",
-                    "product_name_raw", "store_identifier", "is_return"
+                    "sales_id",           # Auto-generated
+                    "tenant_id",          # Auto-injected
+                    "batch_id",           # Use upload_batch_id
+                    "vendor_name",        # Not in schema
+                    "product_name_raw",   # Temporary field
+                    "is_return",          # Use transaction_type
+                    "currency",           # Use local_currency
                 ]}
 
                 # Convert store_identifier to store_id using mapping
@@ -331,7 +334,7 @@ class BibbιSalesInsertionService:
                         "row_number": row_num,
                         "error_type": "insertion_error",
                         "error_message": str(e),
-                        "product_id": row.get("product_id"),
+                        "product_ean": row.get("product_ean"),  # UPDATED: product_id → product_ean
                         "sale_date": row.get("sale_date"),
                         "store_id": row.get("store_id")
                     })
@@ -471,7 +474,7 @@ class BibbιSalesInsertionService:
 
     def rollback_upload(
         self,
-        upload_id: str
+        upload_batch_id: str
     ) -> int:
         """
         Rollback/delete all sales records for an upload
@@ -482,17 +485,16 @@ class BibbιSalesInsertionService:
         - Testing
 
         Args:
-            upload_id: Upload UUID (sales_unified uses upload_id, not batch_id)
+            upload_batch_id: Upload batch UUID (sales_unified.upload_batch_id)
 
         Returns:
             Number of rows deleted
         """
         try:
-            # Delete all sales records with this upload_id
-            # BIBBI uses upload_id (not batch_id)
+            # Delete all sales records with this upload_batch_id
             result = self.db.table("sales_unified")\
                 .delete()\
-                .eq("upload_id", upload_id)\
+                .eq("upload_batch_id", upload_batch_id)\
                 .execute()
 
             deleted_count = len(result.data) if result.data else 0
@@ -506,7 +508,7 @@ class BibbιSalesInsertionService:
                     "rows_inserted": 0,
                     "updated_at": datetime.utcnow().isoformat()
                 })\
-                .eq("upload_id", upload_id)\
+                .eq("upload_id", upload_batch_id)\
                 .execute()
 
             return deleted_count

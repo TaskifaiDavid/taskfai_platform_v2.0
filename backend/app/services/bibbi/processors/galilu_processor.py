@@ -174,7 +174,7 @@ class GaliluProcessor(BibbiBseProcessor):
         if not ean:
             raise ValueError(f"Product not mapped: {product_name}")
 
-        transformed["product_id"] = ean
+        transformed["product_ean"] = ean
 
         # Extract quantity
         qty_value = raw_row.get("Quantity") or raw_row.get("Qty")
@@ -253,7 +253,7 @@ class GaliluProcessor(BibbiBseProcessor):
             product_name: Galilu product name
 
         Returns:
-            EAN (product_id) or None if not found
+            EAN (product_ean) or None if not found
         """
         if not self.product_mapping_service:
             print(f"[Galilu] Warning: No product mapping service available")
