@@ -349,35 +349,34 @@ class LibertyProcessor(BibbiBseProcessor):
 
         # Use product matcher to get BIBBI product data
         # Match by Liberty product NAME against products.liberty_name column
-        # This will match existing products or auto-create with temporary EAN
-        try:
-            # Use cached product service (initialized in __init__)
-            product_service = self._product_service
+        # IMPORTANT: Use match_product() (Tier 1+2 only), NOT match_or_create_product()
+        # Liberty has TEXT names, not numeric codes - auto-create would generate wrong EANs
+        product_service = self._product_service
 
-            # Match using product NAME (not Liberty internal code)
-            # product_service will:
-            # 1. Try exact match on products.liberty_name
-            # 2. Try fuzzy match on product names
-            # 3. Auto-create with product name as temporary EAN if no match
-            product_match = product_service.match_or_create_product(
-                vendor_code=product_name_str,  # Use product NAME for matching
-                product_name=product_name_str,
-                vendor_name="liberty"
-            )
+        # Try matching without auto-creation (returns None if no match)
+        # product_service will:
+        # 1. Try exact match on products.liberty_name
+        # 2. Try fuzzy match on product names
+        # 3. Return None if no match (we handle TEMP_ EAN creation manually)
+        product_match = product_service.match_product(
+            vendor_code=product_name_str,  # Use product NAME for matching
+            product_name=product_name_str,
+            vendor_name="liberty"
+        )
 
-            # Extract EAN and functional_name from product match
-            transformed["product_ean"] = product_match["ean"]  # RENAMED: product_id → product_ean
+        if product_match:
+            # Match found - extract EAN and functional_name
+            transformed["product_ean"] = product_match["ean"]
             transformed["functional_name"] = product_match.get("functional_name")
 
             # Fallback: if no functional_name from match, use Liberty product name
             if not transformed["functional_name"]:
                 transformed["functional_name"] = product_name_str
-                print(f"[Liberty] No functional_name from match, using Liberty name: {product_name_str}")
-
-        except Exception as e:
-            # Graceful degradation: if matching fails, use product name directly
-            print(f"[Liberty] Product matching failed for '{product_name_str}': {e}")
-            print(f"[Liberty] Using Liberty product name as fallback")
+                print(f"[Liberty] Matched product but no functional_name, using Liberty name: {product_name_str}")
+        else:
+            # No match found - create TEMP_ EAN manually
+            # This prevents product service from creating wrong EANs like "9000000000010"
+            print(f"[Liberty] No product match for '{product_name_str}', creating TEMP_ EAN")
 
             # Generate deterministic temporary EAN with hash to prevent collisions
             # Format: TEMP_LIBERTY_{product_name[:20]}_{hash[:8]}
@@ -385,8 +384,35 @@ class LibertyProcessor(BibbiBseProcessor):
             product_hash = hashlib.md5(
                 product_name_str.encode()
             ).hexdigest()[:8]
-            transformed["product_ean"] = f"TEMP_LIBERTY_{product_name_str[:20]}_{product_hash}"
+            temp_ean = f"TEMP_LIBERTY_{product_name_str[:20]}_{product_hash}"
+
+            transformed["product_ean"] = temp_ean
             transformed["functional_name"] = product_name_str
+
+            # Create product record in products table for future matching
+            try:
+                from app.core.bibbi import get_bibbi_db
+                bibbi_db = get_bibbi_db()
+
+                product_data = {
+                    "ean": temp_ean,
+                    "functional_name": product_name_str[:50],
+                    "description": product_name_str,
+                    "liberty_name": product_name_str,  # For future exact matching
+                    "active": False,  # Mark inactive until real EAN assigned
+                    "created_at": datetime.utcnow().isoformat(),
+                    "updated_at": datetime.utcnow().isoformat()
+                }
+
+                # Insert into products table (bypass tenant filter - products has no tenant_id)
+                bibbi_db.client.table("products").insert(product_data).execute()
+                print(f"[Liberty] Created product record: {temp_ean} → '{product_name_str}'")
+
+            except Exception as e:
+                # Non-fatal - if duplicate or insert fails, continue with TEMP_ EAN
+                # Next upload will match on liberty_name column
+                if "duplicate" not in str(e).lower():
+                    print(f"[Liberty] Warning: Could not create product record for {temp_ean}: {e}")
 
         # Store product name for reference
         if product_name_str:
