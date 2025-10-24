@@ -191,7 +191,7 @@ class TestLibertyEnrichmentPipeline:
 
         # Mock product service
         mock_product_service = Mock()
-        mock_product_service.match_or_create_product.return_value = mock_product_match
+        mock_product_service.match_product.return_value = mock_product_match
         mock_get_product_service.return_value = mock_product_service
 
         # Mock reseller query (for sales_channel)
@@ -220,8 +220,8 @@ class TestLibertyEnrichmentPipeline:
         result = processor.process(mock_liberty_file, test_batch_id)
 
         # Verify product matching was called
-        assert mock_product_service.match_or_create_product.called
-        call_args = mock_product_service.match_or_create_product.call_args
+        assert mock_product_service.match_product.called
+        call_args = mock_product_service.match_product.call_args
         assert call_args[1]['vendor_code'] == "TROISIEME 10ML"  # Liberty processor uses product name
         assert call_args[1]['product_name'] == "TROISIEME 10ML"
         assert call_args[1]['vendor_name'] == "liberty"
@@ -257,7 +257,7 @@ class TestLibertyEnrichmentPipeline:
 
         # Mock product service
         mock_product_service = Mock()
-        mock_product_service.match_or_create_product.return_value = mock_product_match
+        mock_product_service.match_product.return_value = mock_product_match
         mock_get_product_service.return_value = mock_product_service
 
         # Mock reseller query
@@ -327,7 +327,7 @@ class TestLibertyEnrichmentPipeline:
 
         # Mock product service
         mock_product_service = Mock()
-        mock_product_service.match_or_create_product.return_value = mock_product_match
+        mock_product_service.match_product.return_value = mock_product_match
         mock_get_product_service.return_value = mock_product_service
 
         # Mock reseller query with sales_channel
@@ -387,7 +387,7 @@ class TestLibertyEnrichmentPipeline:
 
         # Mock product service
         mock_product_service = Mock()
-        mock_product_service.match_or_create_product.return_value = mock_product_match
+        mock_product_service.match_product.return_value = mock_product_match
         mock_get_product_service.return_value = mock_product_service
 
         # Mock reseller query
@@ -470,7 +470,7 @@ class TestLibertyEnrichmentPipeline:
 
         # Mock product service
         mock_product_service = Mock()
-        mock_product_service.match_or_create_product.return_value = mock_product_match
+        mock_product_service.match_product.return_value = mock_product_match
         mock_get_product_service.return_value = mock_product_service
 
         # Mock reseller query
@@ -656,15 +656,34 @@ class TestLibertyEnrichmentErrorRecovery:
         # Setup mocks
         mock_get_bibbi_db.return_value = mock_bibbi_db
 
-        # Mock product service to raise exception
+        # Mock product service to return None (no match found)
+        # This triggers TEMP_ EAN creation in Liberty processor
         mock_product_service = Mock()
-        mock_product_service.match_or_create_product.side_effect = Exception("Product service unavailable")
+        mock_product_service.match_product.return_value = None
         mock_get_product_service.return_value = mock_product_service
 
-        # Mock reseller query
+        # Mock reseller query (for sales_channel)
         mock_reseller_exec = Mock()
-        mock_reseller_exec.data = [{"sales_channel": "B2B", "reseller": "Liberty"}]
-        mock_bibbi_db.client.table.return_value.execute.return_value = mock_reseller_exec
+        mock_reseller_exec.data = [{"sales_channel": "retail", "reseller": "Liberty"}]
+
+        # Mock products table insert (for TEMP_ EAN creation)
+        mock_products_insert = Mock()
+        mock_products_insert.execute.return_value = Mock(data=[{"ean": "TEMP_LIBERTY_test"}])
+
+        def table_side_effect(table_name):
+            mock_table = Mock()
+            mock_table.select.return_value = mock_table
+            mock_table.eq.return_value = mock_table
+            mock_table.insert.return_value = mock_products_insert
+
+            if table_name == "resellers":
+                mock_table.execute.return_value = mock_reseller_exec
+            else:
+                mock_table.execute.return_value = Mock(data=[])
+
+            return mock_table
+
+        mock_bibbi_db.client.table.side_effect = table_side_effect
 
         # Process file
         processor = LibertyProcessor(test_reseller_id)
@@ -704,7 +723,7 @@ class TestLibertyEnrichmentErrorRecovery:
 
         # Mock product service
         mock_product_service = Mock()
-        mock_product_service.match_or_create_product.return_value = mock_product_match
+        mock_product_service.match_product.return_value = mock_product_match
         mock_get_product_service.return_value = mock_product_service
 
         # Mock reseller query to return empty (sales_channel unavailable)

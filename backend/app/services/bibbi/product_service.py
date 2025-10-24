@@ -43,6 +43,68 @@ class BibbιProductService:
         # Cache: {vendor_code -> ean}
         self._product_cache: Dict[str, str] = {}
 
+    def match_product(
+        self,
+        vendor_code: str,
+        product_name: Optional[str] = None,
+        vendor_name: str = "liberty"
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Match vendor product to BIBBI EAN WITHOUT auto-creation (Tier 1 + Tier 2 only)
+
+        Use this for vendors like Liberty that have text product names, not numeric codes.
+        If no match found, returns None (caller can create TEMP_ EAN manually).
+
+        2-Tier Matching Strategy:
+        1. Exact vendor code match (e.g., liberty_name column)
+        2. Fuzzy product name matching
+
+        Args:
+            vendor_code: Vendor's internal product code or name
+            product_name: Product name from vendor file
+            vendor_name: Vendor identifier ("liberty", "galilu", etc.)
+
+        Returns:
+            Dict with product details if match found, None if no match
+
+        Example:
+            product = service.match_product(
+                vendor_code="TROISIEME 10ML",
+                product_name="TROISIEME 10ML",
+                vendor_name="liberty"
+            )
+            if product:
+                ean = product["ean"]
+            else:
+                # No match - create TEMP_ EAN manually
+        """
+        # Check cache first
+        cache_key = f"{vendor_name}:{vendor_code}"
+        if cache_key in self._product_cache:
+            cached_ean = self._product_cache[cache_key]
+            return self._fetch_product_details(cached_ean)
+
+        # Tier 1: Exact vendor code match
+        ean = self._match_by_vendor_code(vendor_code, vendor_name)
+        if ean:
+            self._product_cache[cache_key] = ean
+            print(f"[BibbiProduct] Matched by vendor code: {vendor_code} → {ean}")
+            return self._fetch_product_details(ean)
+
+        # Tier 2: Fuzzy product name match (if name provided)
+        if product_name:
+            ean = self._match_by_product_name(product_name)
+            if ean:
+                # Update vendor column for future uploads
+                self._update_vendor_mapping(ean, vendor_code, vendor_name)
+                self._product_cache[cache_key] = ean
+                print(f"[BibbiProduct] Matched by name: '{product_name}' → {ean}")
+                return self._fetch_product_details(ean)
+
+        # No match found - return None (no auto-create)
+        print(f"[BibbiProduct] No match found for '{product_name}' (vendor_code: {vendor_code})")
+        return None
+
     def match_or_create_product(
         self,
         vendor_code: str,
@@ -56,6 +118,9 @@ class BibbιProductService:
         1. Exact vendor code match (e.g., liberty_name column)
         2. Fuzzy product name matching
         3. Auto-create with vendor code as temporary EAN
+
+        IMPORTANT: Only use for vendors with NUMERIC codes (Galilu, Boxnox, etc.)
+        For vendors with TEXT names (Liberty), use match_product() instead.
 
         Args:
             vendor_code: Vendor's internal product code (e.g., "834429")
@@ -76,7 +141,7 @@ class BibbιProductService:
             product = service.match_or_create_product(
                 vendor_code="834429",
                 product_name="TROISIEME 10ML",
-                vendor_name="liberty"
+                vendor_name="galilu"
             )
             ean = product["ean"]
             name = product["functional_name"]

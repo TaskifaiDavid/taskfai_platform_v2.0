@@ -426,7 +426,7 @@ class BibbiBseProcessor(ABC):
             # NOTE: Use raw client to bypass tenant filter (resellers table has no tenant_id)
             result = bibbi_db.client.table("resellers")\
                 .select("sales_channel, reseller")\
-                .eq("reseller_id", self.reseller_id)\
+                .eq("id", self.reseller_id)\
                 .execute()
 
             if result.data and len(result.data) > 0:
