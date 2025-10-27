@@ -62,19 +62,16 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
         if settings.tenant_id_override:
             print(f"[TenantContextMiddleware] Using TENANT_ID_OVERRIDE: {settings.tenant_id_override}")
 
-            if settings.tenant_id_override == "bibbi":
-                request.state.tenant = TenantContextManager.get_bibbi_context()
-                print(f"[TenantContextMiddleware] Set BIBBI tenant via override: {request.state.tenant}")
-            elif settings.tenant_id_override == "demo":
+            if settings.tenant_id_override == "demo":
                 request.state.tenant = TenantContextManager.get_demo_context()
                 print(f"[TenantContextMiddleware] Set demo tenant via override: {request.state.tenant}")
             else:
-                # Custom tenant - lookup from registry
+                # All other tenants (including bibbi) - lookup from registry
                 try:
-                    print(f"[TenantContextMiddleware] Looking up custom tenant: {settings.tenant_id_override}")
+                    print(f"[TenantContextMiddleware] Looking up tenant: {settings.tenant_id_override}")
                     tenant_context = await self.tenant_manager.from_subdomain(settings.tenant_id_override)
                     request.state.tenant = tenant_context
-                    print(f"[TenantContextMiddleware] Set custom tenant via override: {tenant_context}")
+                    print(f"[TenantContextMiddleware] Set tenant via override: {tenant_context}")
                 except ValueError as e:
                     print(f"[TenantContextMiddleware] Override tenant not found: {e}")
                     raise HTTPException(
@@ -95,15 +92,10 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
         # For demo/localhost/app, always use demo context without database lookup
         # This ensures local development works even if tenant registry is not set up
         # "app" subdomain is the central login portal at app.taskifai.com
-        # "bibbi" subdomain is for local testing of BIBBI tenant features
         if subdomain in ("demo", "localhost", "app", None):
             print(f"[TenantContextMiddleware] Using demo context for subdomain: {subdomain}")
             request.state.tenant = TenantContextManager.get_demo_context()
             print(f"[TenantContextMiddleware] Set demo tenant: {request.state.tenant}")
-        elif subdomain == "bibbi":
-            print(f"[TenantContextMiddleware] Using BIBBI context for local testing")
-            request.state.tenant = TenantContextManager.get_bibbi_context()
-            print(f"[TenantContextMiddleware] Set BIBBI tenant: {request.state.tenant}")
         else:
             # Production tenant - lookup from registry
             try:
