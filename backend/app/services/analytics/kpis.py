@@ -240,10 +240,25 @@ class KPICalculator:
         else:
             online_top = []
 
-        # Combine and sort
-        all_products = offline_top + online_top
-        all_products.sort(key=lambda x: x['revenue'], reverse=True)
+        # Merge products across channels (combine offline + online for same product)
+        merged_products = {}
+        for product in offline_top + online_top:
+            name = product['product_name']
+            if name not in merged_products:
+                merged_products[name] = {
+                    'product_name': name,
+                    'product_ean': product['product_ean'],
+                    'revenue': 0,
+                    'units': 0,
+                    'transactions': 0,
+                    'channel': 'both' if (offline_top and online_top) else product['channel']
+                }
+            merged_products[name]['revenue'] += product['revenue']
+            merged_products[name]['units'] += product['units']
+            merged_products[name]['transactions'] += product['transactions']
 
+        # Sort by revenue and return top N
+        all_products = sorted(merged_products.values(), key=lambda x: x['revenue'], reverse=True)
         return all_products[:limit]
 
     def _get_top_offline_products(
@@ -273,14 +288,14 @@ class KPICalculator:
                         filtered.append(r)
             records = filtered
 
-        # Group by product
+        # Group by product name (aggregating all EAN variants)
         products = {}
         for r in records:
-            key = (r.get('functional_name'), r.get('product_ean'))
+            key = r.get('functional_name')
             if key not in products:
                 products[key] = {
                     'product_name': r.get('functional_name', 'Unknown'),
-                    'product_ean': r.get('product_ean', ''),
+                    'product_ean': r.get('product_ean', ''),  # Store first EAN encountered
                     'revenue': 0,
                     'units': 0,
                     'transactions': 0,
@@ -317,14 +332,14 @@ class KPICalculator:
         if not result.data:
             return []
 
-        # Group by product
+        # Group by product name (aggregating all EAN variants)
         products = {}
         for r in result.data:
-            key = (r.get('functional_name'), r.get('product_ean'))
+            key = r.get('functional_name')
             if key not in products:
                 products[key] = {
                     'product_name': r.get('functional_name', 'Unknown'),
-                    'product_ean': r.get('product_ean', ''),
+                    'product_ean': r.get('product_ean', ''),  # Store first EAN encountered
                     'revenue': 0,
                     'units': 0,
                     'transactions': 0,
