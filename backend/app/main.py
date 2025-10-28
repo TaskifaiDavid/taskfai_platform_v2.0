@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from supabase import create_client
 
-from app.api import auth, uploads, chat, dashboards, analytics, admin, dashboard_config, bibbi_uploads, bibbi_product_mappings
+from app.api import auth, uploads, chat, dashboards, analytics, admin, dashboard_config, bibbi_uploads, bibbi_product_mappings, registry
 from app.core.config import settings
 from app.core.tenant import TenantContextManager
 from app.middleware.tenant_context import TenantContextMiddleware
@@ -120,6 +120,9 @@ app.include_router(admin.router)  # Register without /api prefix for production
 # Use /api/bibbi prefix to avoid conflict with generic /api/uploads endpoint
 app.include_router(bibbi_uploads.router, prefix="/api/bibbi")
 app.include_router(bibbi_product_mappings.router, prefix="/api/bibbi")
+
+# Backend discovery router (multi-tenant backend routing)
+app.include_router(registry.router, prefix="/api")
 
 
 @app.get("/")
