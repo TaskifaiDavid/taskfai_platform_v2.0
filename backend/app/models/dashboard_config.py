@@ -18,6 +18,10 @@ class KPIType(str, Enum):
     TOTAL_REVENUE = "total_revenue"
     TOTAL_UNITS = "total_units"
     AVG_PRICE = "avg_price"
+    AVERAGE_ORDER_VALUE = "average_order_value"
+    UNITS_PER_TRANSACTION = "units_per_transaction"
+    FAST_MOVING_PRODUCTS = "fast_moving_products"
+    SLOW_MOVING_PRODUCTS = "slow_moving_products"
     TOTAL_UPLOADS = "total_uploads"
     GROSS_PROFIT = "gross_profit"
     PROFIT_MARGIN = "profit_margin"
@@ -34,25 +38,41 @@ class WidgetType(str, Enum):
     KPI_GRID = "kpi_grid"
     RECENT_UPLOADS = "recent_uploads"
     TOP_PRODUCTS = "top_products"
+    TOP_PRODUCTS_CHART = "top_products_chart"
     RESELLER_PERFORMANCE = "reseller_performance"
+    TOP_RESELLERS_CHART = "top_resellers_chart"
     CATEGORY_REVENUE = "category_revenue"
+    CHANNEL_MIX = "channel_mix"
+    TOP_MARKETS = "top_markets"
+    TOP_STORES = "top_stores"
     REVENUE_CHART = "revenue_chart"
     SALES_TREND = "sales_trend"
 
 
 class WidgetPosition(BaseModel):
-    """Widget position and size in grid layout."""
-    row: int = Field(..., ge=0, description="Grid row position (0-indexed)")
-    col: int = Field(..., ge=0, le=11, description="Grid column position (0-11, 12-column grid)")
-    width: int = Field(..., ge=1, le=12, description="Widget width in grid columns (1-12)")
-    height: int = Field(..., ge=1, le=12, description="Widget height in grid rows")
+    """Widget position and size in grid layout.
 
-    @field_validator('width', 'col')
+    Supports both naming conventions:
+    - Frontend: {x, y, w, h} (gridPosition)
+    - Backend: {row, col, width, height} (position)
+    """
+    # Frontend convention (gridPosition)
+    x: Optional[int] = Field(None, ge=0, description="Grid X position (column, 0-indexed)")
+    y: Optional[int] = Field(None, ge=0, description="Grid Y position (row, 0-indexed)")
+    w: Optional[int] = Field(None, ge=1, le=12, description="Widget width in grid columns")
+    h: Optional[int] = Field(None, ge=1, le=12, description="Widget height in grid rows")
+
+    # Backend convention (position)
+    row: Optional[int] = Field(None, ge=0, description="Grid row position (0-indexed)")
+    col: Optional[int] = Field(None, ge=0, le=11, description="Grid column position (0-11)")
+    width: Optional[int] = Field(None, ge=1, le=12, description="Widget width in grid columns")
+    height: Optional[int] = Field(None, ge=1, le=12, description="Widget height in grid rows")
+
+    @field_validator('w', 'width')
     @classmethod
-    def validate_grid_bounds(cls, v: int, info) -> int:
+    def validate_grid_bounds(cls, v: Optional[int], info) -> Optional[int]:
         """Validate that widget fits within 12-column grid."""
-        field_name = info.field_name
-        if field_name == 'width' and v > 12:
+        if v is not None and v > 12:
             raise ValueError("Widget width cannot exceed 12 columns")
         return v
 

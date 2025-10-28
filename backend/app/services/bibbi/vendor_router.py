@@ -138,8 +138,11 @@ class BibbιVendorRouter:
 
             factory = factory_functions.get(factory_name)
             if factory:
-                # Special case: Galilu needs database client
+                # Special cases: Galilu and Liberty need database client
                 if vendor_name == "galilu" and bibbi_db:
+                    processor_instance = factory(reseller_id, bibbi_db)
+                elif vendor_name == "liberty" and bibbi_db:
+                    # Liberty needs Supabase client for product lookups
                     processor_instance = factory(reseller_id, bibbi_db)
                 else:
                     processor_instance = factory(reseller_id)

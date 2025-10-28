@@ -1,8 +1,8 @@
-import { useKPIs } from '@/api/analytics'
+import { useDashboardData } from '@/api/analytics'
 import { KPICard } from '@/components/analytics/KPICard'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Euro, Package, TrendingUp, Upload as UploadIcon, DollarSign, Percent, Globe, ShoppingCart } from 'lucide-react'
+import { Euro, Package, TrendingUp, ShoppingCart, Zap, Gauge } from 'lucide-react'
 import type { WidgetConfig } from '@/types/dashboardConfig'
 
 interface KPIGridWidgetProps {
@@ -10,8 +10,9 @@ interface KPIGridWidgetProps {
 }
 
 export function KPIGridWidget({ config }: KPIGridWidgetProps) {
-  const { data: kpis, isLoading } = useKPIs()
+  const { data: dashboard, isLoading } = useDashboardData()
   const kpiList = config.props.kpis as string[] || []
+  const kpis = dashboard?.kpis
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-EU', {
@@ -26,10 +27,6 @@ export function KPIGridWidget({ config }: KPIGridWidgetProps) {
   const revenueSparkline = [42000, 45000, 43500, 47000, 49000, 48500, 52000, 54000, 53000, 56000, 58000, 60000]
   const unitsSparkline = [850, 920, 880, 950, 1020, 990, 1080, 1150, 1120, 1200, 1280, 1320]
   const priceSparkline = [48, 49, 47, 50, 48, 49, 48, 47, 47, 47, 45, 45]
-  const uploadsSparkline = [2, 3, 2, 4, 3, 5, 4, 6, 5, 7, 6, 8]
-  const profitSparkline = [15000, 18000, 17000, 20000, 22000, 21000, 24000, 26000, 25000, 28000, 30000, 32000]
-  const marginSparkline = [35, 38, 36, 39, 42, 40, 43, 45, 44, 46, 48, 50]
-  const countriesSparkline = [5, 6, 6, 7, 8, 8, 9, 10, 10, 11, 12, 13]
   const ordersSparkline = [120, 145, 130, 160, 175, 165, 190, 210, 200, 225, 240, 260]
 
   if (isLoading) {
@@ -70,56 +67,45 @@ export function KPIGridWidget({ config }: KPIGridWidgetProps) {
         />
       )}
 
-      {kpiList.includes('avg_price') && (
+      {kpiList.includes('average_order_value') && (
         <KPICard
-          title="Average Price"
-          value={kpis ? formatCurrency(kpis.avg_price) : '€0'}
+          title="Average Order Value"
+          value={kpis ? formatCurrency(kpis.average_order_value) : '€0'}
           icon={TrendingUp}
-          trend={{ value: 3.1, isPositive: false }}
+          trend={{ value: 3.1, isPositive: true }}
           sparklineData={priceSparkline}
+          subtitle="Per transaction"
           className="border-border bg-card hover:shadow-md transition-all duration-200 hover:scale-[1.02]"
         />
       )}
 
-      {kpiList.includes('total_uploads') && (
+      {kpiList.includes('units_per_transaction') && (
         <KPICard
-          title="Total Uploads"
-          value={kpis?.total_uploads?.toString() || '0'}
-          icon={UploadIcon}
-          sparklineData={uploadsSparkline}
+          title="Units Per Transaction"
+          value={kpis?.units_per_transaction.toFixed(1) || '0'}
+          icon={Gauge}
+          trend={{ value: 5.2, isPositive: true }}
+          subtitle="Average units"
           className="border-border bg-card hover:shadow-md transition-all duration-200 hover:scale-[1.02]"
         />
       )}
 
-      {kpiList.includes('gross_profit') && (
+      {kpiList.includes('fast_moving_products') && (
         <KPICard
-          title="Gross Profit"
-          value={kpis ? formatCurrency(kpis.gross_profit || 0) : '€0'}
-          icon={DollarSign}
-          trend={{ value: 15.3, isPositive: true }}
-          sparklineData={profitSparkline}
+          title="Fast Moving Products"
+          value={kpis?.fast_moving_products.toLocaleString() || '0'}
+          icon={Zap}
+          subtitle="Sold in 30 days"
           className="border-border bg-card hover:shadow-md transition-all duration-200 hover:scale-[1.02]"
         />
       )}
 
-      {kpiList.includes('profit_margin') && (
+      {kpiList.includes('slow_moving_products') && (
         <KPICard
-          title="Profit Margin"
-          value={kpis ? `${(kpis.profit_margin || 0).toFixed(1)}%` : '0%'}
-          icon={Percent}
-          trend={{ value: 2.8, isPositive: true }}
-          sparklineData={marginSparkline}
-          className="border-border bg-card hover:shadow-md transition-all duration-200 hover:scale-[1.02]"
-        />
-      )}
-
-      {kpiList.includes('unique_countries') && (
-        <KPICard
-          title="Countries"
-          value={kpis?.unique_countries?.toString() || '0'}
-          icon={Globe}
-          trend={{ value: 4.5, isPositive: true }}
-          sparklineData={countriesSparkline}
+          title="Slow Moving Products"
+          value={kpis?.slow_moving_products.toLocaleString() || '0'}
+          icon={Package}
+          subtitle="Over 90 days"
           className="border-border bg-card hover:shadow-md transition-all duration-200 hover:scale-[1.02]"
         />
       )}

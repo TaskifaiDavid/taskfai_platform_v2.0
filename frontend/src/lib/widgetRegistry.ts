@@ -327,6 +327,51 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetMetadata> = {
         }
       }
     }
+  },
+
+  [WidgetType.TOP_PRODUCTS_CHART]: {
+    type: WidgetType.TOP_PRODUCTS_CHART,
+    name: 'Top Products Chart',
+    description: 'Horizontal bar chart showing top 10 products by revenue',
+    icon: 'Package',
+    category: 'charts',
+    configSchema: {}
+  },
+
+  [WidgetType.TOP_RESELLERS_CHART]: {
+    type: WidgetType.TOP_RESELLERS_CHART,
+    name: 'Top Resellers Chart',
+    description: 'Horizontal bar chart showing top 10 resellers by revenue',
+    icon: 'Users',
+    category: 'charts',
+    configSchema: {}
+  },
+
+  [WidgetType.CHANNEL_MIX]: {
+    type: WidgetType.CHANNEL_MIX,
+    name: 'Channel Mix',
+    description: 'Revenue and units breakdown by sales channel',
+    icon: 'Laptop',
+    category: 'metrics',
+    configSchema: {}
+  },
+
+  [WidgetType.TOP_MARKETS]: {
+    type: WidgetType.TOP_MARKETS,
+    name: 'Top Markets',
+    description: 'Top 7 countries by revenue',
+    icon: 'Globe',
+    category: 'metrics',
+    configSchema: {}
+  },
+
+  [WidgetType.TOP_STORES]: {
+    type: WidgetType.TOP_STORES,
+    name: 'Top Stores',
+    description: 'Top 10 stores by revenue with location details',
+    icon: 'Store',
+    category: 'metrics',
+    configSchema: {}
   }
 }
 

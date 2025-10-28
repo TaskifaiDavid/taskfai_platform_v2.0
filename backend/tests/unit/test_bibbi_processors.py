@@ -511,5 +511,4 @@ class TestLibertyProcessor:
 
         # Verify return flags
         assert result["is_return"] is True
-        assert result["return_quantity"] == 5  # Absolute value
-        assert result["quantity"] == -5  # Original negative value
+        assert result["quantity"] == -5  # Negative quantity indicates return

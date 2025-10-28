@@ -18,6 +18,11 @@ import { ResellerPerformanceWidget } from './widgets/ResellerPerformanceWidget'
 import { SalesTrendWidget } from './widgets/SalesTrendWidget'
 import { RevenueChartWidget } from './widgets/RevenueChartWidget'
 import { CategoryRevenueWidget } from './widgets/CategoryRevenueWidget'
+import { TopProductsChartWidget } from './widgets/TopProductsChartWidget'
+import { TopResellersChartWidget } from './widgets/TopResellersChartWidget'
+import { ChannelMixWidget } from './widgets/ChannelMixWidget'
+import { TopMarketsWidget } from './widgets/TopMarketsWidget'
+import { TopStoresWidget } from './widgets/TopStoresWidget'
 
 interface DynamicDashboardProps {
   config: DashboardConfig
@@ -49,6 +54,21 @@ function DynamicWidget({ widget }: { widget: WidgetConfig }) {
 
     case WidgetType.SALES_TREND:
       return <SalesTrendWidget config={widget} />
+
+    case WidgetType.TOP_PRODUCTS_CHART:
+      return <TopProductsChartWidget config={widget} />
+
+    case WidgetType.TOP_RESELLERS_CHART:
+      return <TopResellersChartWidget config={widget} />
+
+    case WidgetType.CHANNEL_MIX:
+      return <ChannelMixWidget config={widget} />
+
+    case WidgetType.TOP_MARKETS:
+      return <TopMarketsWidget config={widget} />
+
+    case WidgetType.TOP_STORES:
+      return <TopStoresWidget config={widget} />
 
     default:
       return (

@@ -73,6 +73,138 @@ async def get_kpis(
         )
 
 
+@router.get("/dashboard", response_model=dict, status_code=status.HTTP_200_OK)
+async def get_dashboard_data(
+    current_user: Annotated[UserResponse, Depends(get_current_user)],
+    supabase: Annotated[Client, Depends(get_tenant_db_pool)],
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    channel: Optional[str] = None
+):
+    """
+    Get comprehensive dashboard data with all KPIs and visualizations
+
+    - **start_date**: Start of date range (optional)
+    - **end_date**: End of date range (optional)
+    - **channel**: Filter by channel ('offline', 'online', or None for all)
+
+    Returns:
+    - 10 KPI number cards
+    - Top 10 products (bar chart data)
+    - Top 10 resellers (bar chart data)
+    - Top 7 markets (countries)
+    - Top 10 stores
+    - Channel mix breakdown
+    - Product velocity metrics
+    """
+    try:
+        kpi_calculator = KPICalculator(supabase)
+
+        # Get main KPIs
+        kpis = kpi_calculator.calculate_kpis(
+            user_id=current_user["user_id"],
+            start_date=start_date,
+            end_date=end_date,
+            channel=channel
+        )
+
+        # Get top products (bar chart)
+        top_products = kpi_calculator.get_top_products(
+            user_id=current_user["user_id"],
+            limit=10,
+            channel=channel,
+            start_date=start_date,
+            end_date=end_date
+        )
+
+        # Get top resellers (bar chart)
+        top_resellers = kpi_calculator.get_top_resellers(
+            user_id=current_user["user_id"],
+            limit=10,
+            start_date=start_date,
+            end_date=end_date
+        )
+
+        # Get top markets (countries)
+        top_markets = kpi_calculator.get_top_markets(
+            user_id=current_user["user_id"],
+            limit=7,
+            start_date=start_date,
+            end_date=end_date
+        )
+
+        # Get top stores
+        top_stores = kpi_calculator.get_top_stores(
+            user_id=current_user["user_id"],
+            limit=10,
+            start_date=start_date,
+            end_date=end_date
+        )
+
+        # Get channel mix
+        channel_mix = kpi_calculator.calculate_channel_mix(
+            user_id=current_user["user_id"],
+            start_date=start_date,
+            end_date=end_date
+        )
+
+        # Get units per transaction
+        units_per_transaction = kpi_calculator.calculate_units_per_transaction(
+            user_id=current_user["user_id"],
+            start_date=start_date,
+            end_date=end_date,
+            channel=channel
+        )
+
+        # Get product velocity
+        product_velocity = kpi_calculator.calculate_product_velocity(
+            user_id=current_user["user_id"]
+        )
+
+        # Compile comprehensive dashboard response
+        dashboard = {
+            # Core KPI cards
+            'kpis': {
+                'total_revenue': kpis['total_revenue'],
+                'total_units': kpis['total_units'],
+                'average_order_value': kpis['average_order_value'],
+                'units_per_transaction': units_per_transaction,
+                'order_count': kpis['order_count'],
+                'fast_moving_products': product_velocity['fast_moving_count'],
+                'slow_moving_products': product_velocity['slow_moving_count'],
+            },
+
+            # Bar charts
+            'charts': {
+                'top_products': top_products,
+                'top_resellers': top_resellers,
+            },
+
+            # Additional data cards
+            'metrics': {
+                'top_markets': top_markets,
+                'top_stores': top_stores,
+                'channel_mix': channel_mix,
+                'product_velocity': product_velocity
+            },
+
+            # Metadata
+            'date_range': {
+                'start': start_date.isoformat() if start_date else None,
+                'end': end_date.isoformat() if end_date else None
+            },
+            'channel_filter': channel
+        }
+
+        return dashboard
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate dashboard data: {str(e)}"
+        )
+
+
 @router.get("/sales", response_model=dict, status_code=status.HTTP_200_OK)
 async def get_sales_data(
     current_user: Annotated[UserResponse, Depends(get_current_user)],

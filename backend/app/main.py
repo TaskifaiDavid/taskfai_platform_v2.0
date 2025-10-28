@@ -117,8 +117,9 @@ app.include_router(admin.router, prefix="/api")
 app.include_router(admin.router)  # Register without /api prefix for production
 
 # BIBBI-specific routers (tenant-isolated reseller upload system)
-app.include_router(bibbi_uploads.router, prefix="/api")
-app.include_router(bibbi_product_mappings.router, prefix="/api")
+# Use /api/bibbi prefix to avoid conflict with generic /api/uploads endpoint
+app.include_router(bibbi_uploads.router, prefix="/api/bibbi")
+app.include_router(bibbi_product_mappings.router, prefix="/api/bibbi")
 
 
 @app.get("/")

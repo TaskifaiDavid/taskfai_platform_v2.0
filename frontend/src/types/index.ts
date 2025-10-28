@@ -144,6 +144,81 @@ export interface KPIs {
   }>
 }
 
+// Comprehensive Dashboard Data
+export interface DashboardData {
+  kpis: {
+    total_revenue: number
+    total_units: number
+    average_order_value: number
+    units_per_transaction: number
+    order_count: number
+    fast_moving_products: number
+    slow_moving_products: number
+  }
+  charts: {
+    top_products: Array<{
+      product_name: string
+      product_ean: string
+      revenue: number
+      units: number
+      transactions: number
+      channel: string
+    }>
+    top_resellers: Array<{
+      reseller_id: string
+      reseller_name: string
+      revenue: number
+      units: number
+      transactions: number
+      store_count: number
+    }>
+  }
+  metrics: {
+    top_markets: Array<{
+      country: string
+      revenue: number
+      units: number
+      transactions: number
+    }>
+    top_stores: Array<{
+      store_id: string
+      store_name: string
+      city: string
+      country: string
+      revenue: number
+      units: number
+      transactions: number
+    }>
+    channel_mix: Array<{
+      channel: string
+      revenue: number
+      revenue_percentage: number
+      units: number
+      units_percentage: number
+      transactions: number
+    }>
+    product_velocity: {
+      fast_moving_count: number
+      slow_moving_count: number
+      fast_moving_products: Array<{
+        product_ean: string
+        product_name: string
+        units_sold: number
+        revenue: number
+      }>
+      days_thresholds: {
+        fast_days: number
+        slow_days: number
+      }
+    }
+  }
+  date_range: {
+    start: string | null
+    end: string | null
+  }
+  channel_filter: string | null
+}
+
 export interface SalesFilter {
   date_from?: string
   date_to?: string

@@ -32,6 +32,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
     PUBLIC_PATHS = [
         "/",
         "/health",
+        "/api/health",  # Support both /health and /api/health for DigitalOcean compatibility
         "/api/docs",
         "/api/redoc",
         "/openapi.json",
@@ -63,9 +64,16 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if request.method == "OPTIONS":
             return await call_next(request)
 
+        # DEBUG: Log request path to diagnose PUBLIC_PATHS matching
+        print(f"[AuthMiddleware] Checking path: '{request.url.path}'")
+        print(f"[AuthMiddleware] Is public? {request.url.path in self.PUBLIC_PATHS}")
+
         # Skip auth for public paths
         if request.url.path in self.PUBLIC_PATHS:
+            print(f"[AuthMiddleware] ✓ Skipping auth for public path: {request.url.path}")
             return await call_next(request)
+
+        print(f"[AuthMiddleware] ✗ Requiring auth for path: {request.url.path}")
 
         # Extract token from Authorization header
         auth_header = request.headers.get("authorization")
@@ -112,7 +120,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
         request_tenant: TenantContext = request.state.tenant
 
         # Validate tenant claims
-        if token_tenant_id != request_tenant.tenant_id:
+        # Special case for BIBBI: Accept both "bibbi" (old tokens) and UUID (new tenant_id)
+        is_bibbi_match = (
+            request_tenant.subdomain == "bibbi" and
+            token_tenant_id in ("bibbi", "5d15bb52-7fef-4b56-842d-e752f3d01292")
+        )
+
+        if not is_bibbi_match and token_tenant_id != request_tenant.tenant_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Token tenant mismatch - possible cross-tenant attack"

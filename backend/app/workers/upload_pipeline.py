@@ -206,8 +206,18 @@ class UploadPipeline:
         try:
             supabase = get_worker_supabase_client(tenant_id)
 
+            # Determine table and field names based on tenant
+            if tenant_id == "bibbi":
+                table_name = "uploads"
+                status_field = "status"
+                id_field = "id"
+            else:
+                table_name = "upload_batches"
+                status_field = "processing_status"
+                id_field = "upload_batch_id"
+
             update_data = {
-                "status": status,  # Field name is 'status', not 'processing_status'
+                status_field: status,  # Use correct field name per tenant
                 **additional_fields
             }
 
@@ -215,11 +225,10 @@ class UploadPipeline:
             if status == "processing":
                 update_data["processing_started_at"] = datetime.utcnow().isoformat()
             elif status in ("completed", "completed_with_errors", "failed"):
-                update_data["processing_completed_at"] = datetime.utcnow().isoformat()  # Field is 'processing_completed_at'
+                update_data["processing_completed_at"] = datetime.utcnow().isoformat()
 
-            supabase.table("uploads").update(update_data).eq(
-                "id", batch_id
-            ).execute()
+            # Update existing upload record (created by upload endpoint)
+            supabase.table(table_name).update(update_data).eq(id_field, batch_id).execute()
 
         except Exception as e:
             print(f"[Pipeline] Failed to update batch status: {e}")
@@ -301,13 +310,14 @@ class UploadPipeline:
 
         return processor_class()
 
-    def get_bibbi_processor(self, vendor_name: str, reseller_id: str):
+    def get_bibbi_processor(self, vendor_name: str, reseller_id: str, bibbi_db=None):
         """
         Get BIBBI processor instance for vendor
 
         Args:
             vendor_name: Vendor identifier
             reseller_id: Reseller UUID
+            bibbi_db: BIBBI database client (required for Liberty, Galilu)
 
         Returns:
             Processor instance
@@ -318,7 +328,7 @@ class UploadPipeline:
         # LAZY IMPORT: Load BIBBI router only when needed
         from app.services.bibbi.vendor_router import bibbi_vendor_router
 
-        processor = bibbi_vendor_router._get_processor(vendor_name, reseller_id)
+        processor = bibbi_vendor_router._get_processor(vendor_name, reseller_id, bibbi_db)
         if not processor:
             raise ValueError(f"No BIBBI processor available for vendor: {vendor_name}")
 
@@ -364,6 +374,16 @@ class UploadPipeline:
 
         if not context.detected_vendor:
             raise Exception(f"Unable to detect vendor from file. Confidence: {context.confidence}")
+
+        # Persist vendor_name to database immediately after detection
+        # This ensures frontend can display detected vendor right away
+        self.update_batch_status(
+            batch_id=context.batch_id,
+            status="pending",  # Keep status as pending during preparation
+            tenant_id=context.tenant_id,
+            vendor_name=context.detected_vendor
+        )
+        print(f"[Pipeline] Persisted vendor_name={context.detected_vendor} to database")
 
         # Auto-lookup reseller for BIBBI vendors (if not already set)
         # This ensures Liberty and other reseller vendors route to BIBBI path

@@ -62,6 +62,23 @@ def get_supabase_client(
             settings.supabase_service_key  # Changed from anon_key
         )
 
+    # FIX: For BIBBI tenant, use BIBBI-specific database
+    # This matches the routing logic in worker_db.py to ensure uploads
+    # are created in the correct database (BIBBI vs DEMO)
+    if tenant_context.subdomain == "bibbi":
+        bibbi_url = settings.bibbi_supabase_url
+        bibbi_key = settings.bibbi_supabase_service_key
+
+        if bibbi_url and bibbi_key:
+            return create_client(bibbi_url, bibbi_key)
+        else:
+            # Fallback to demo if BIBBI credentials not configured
+            print(f"[Dependencies] WARNING: BIBBI credentials not configured, falling back to demo database")
+            return create_client(
+                settings.supabase_url,
+                settings.supabase_service_key
+            )
+
     # For production tenants, use tenant-specific database
     # (Future implementation - load from tenant registry)
     if tenant_context.database_url and tenant_context.database_key:
@@ -107,21 +124,54 @@ async def get_current_user(
     if payload is None:
         raise credentials_exception
 
-    # Extract user_id from token
+    # Extract user_id and tenant_id from token
+    # Note: tenant_id in token is the subdomain string ("bibbi", "demo")
+    # but user_tenants table uses UUID foreign key
     user_id: str = payload.get("sub")
-    if user_id is None:
+    tenant_subdomain: str = payload.get("subdomain")
+
+    if user_id is None or tenant_subdomain is None:
         raise credentials_exception
 
-    # Fetch user from database
+    # Fetch user from Tenant Registry's user_tenants table
     try:
-        response = supabase.table("users").select("*").eq("user_id", user_id).execute()
+        registry_client = create_client(
+            settings.get_tenant_registry_url(),
+            settings.get_tenant_registry_service_key()
+        )
+
+        # First, lookup tenant UUID from subdomain
+        tenant_response = registry_client.table("tenants")\
+            .select("tenant_id")\
+            .eq("subdomain", tenant_subdomain)\
+            .execute()
+
+        if not tenant_response.data:
+            raise credentials_exception
+
+        tenant_uuid = tenant_response.data[0]["tenant_id"]
+
+        # Now query user_tenants with the UUID
+        response = registry_client.table("user_tenants")\
+            .select("*")\
+            .eq("user_id", user_id)\
+            .eq("tenant_id", tenant_uuid)\
+            .execute()
 
         if not response.data:
             raise credentials_exception
 
         user = response.data[0]
+
+        # Add tenant context from JWT to user dict for downstream use
+        # (uploads endpoint, analytics, etc. need tenant_id)
+        user["tenant_id"] = payload.get("tenant_id")  # String: "bibbi", "demo"
+        user["subdomain"] = payload.get("subdomain")  # String: "bibbi", "demo"
+
         return user
 
+    except HTTPException:
+        raise
     except Exception:
         raise credentials_exception
 

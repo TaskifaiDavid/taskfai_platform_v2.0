@@ -65,22 +65,41 @@ async def upload_file(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
 
-    # Create upload batch record
-    try:
-        batch_data = {
-            "upload_batch_id": batch_id,
-            "uploader_user_id": user_id,
-            "original_filename": file.filename,
-            "file_size_bytes": file_size,
-            "upload_mode": mode,
-            "processing_status": "pending",
-            "upload_timestamp": datetime.utcnow().isoformat()
-        }
+    # Determine tenant context for correct table/column mapping
+    if not tenant_id:
+        # Extract from current user's tenant context if available
+        tenant_id = current_user.get("tenant_id", "demo")
 
-        result = supabase.table("upload_batches").insert(batch_data).execute()
+    # Create upload record (table structure differs by tenant)
+    try:
+        if tenant_id == "bibbi":
+            # BIBBI uses 'uploads' table with different column names
+            batch_data = {
+                "id": batch_id,  # BIBBI uses 'id' not 'upload_batch_id'
+                "user_id": user_id,  # BIBBI uses 'user_id' not 'uploader_user_id'
+                "filename": file.filename,  # BIBBI uses 'filename' not 'original_filename'
+                "file_size": file_size,  # BIBBI uses 'file_size' not 'file_size_bytes'
+                "status": "pending",  # BIBBI uses 'status' not 'processing_status'
+                "uploaded_at": datetime.utcnow().isoformat()  # BIBBI uses 'uploaded_at' not 'upload_timestamp'
+            }
+            table_name = "uploads"
+        else:
+            # Demo/other tenants use 'upload_batches' table
+            batch_data = {
+                "upload_batch_id": batch_id,
+                "uploader_user_id": user_id,
+                "original_filename": file.filename,
+                "file_size_bytes": file_size,
+                "upload_mode": mode,
+                "processing_status": "pending",
+                "upload_timestamp": datetime.utcnow().isoformat()
+            }
+            table_name = "upload_batches"
+
+        result = supabase.table(table_name).insert(batch_data).execute()
 
         if not result.data:
-            raise Exception("Failed to create upload batch record")
+            raise Exception(f"Failed to create {table_name} record")
 
     except Exception as e:
         # Cleanup file if database insert fails
@@ -91,11 +110,6 @@ async def upload_file(
     # Pass file as base64 to worker (separate container, can't access /tmp/uploads)
     import base64
     file_content_b64 = base64.b64encode(file_content).decode('utf-8')
-
-    # Determine tenant context
-    if not tenant_id:
-        # Extract from current user's tenant context if available
-        tenant_id = current_user.get("tenant_id", "demo")
 
     from app.workers.unified_tasks import process_unified_upload
     process_unified_upload.delay(
@@ -140,28 +154,64 @@ async def get_upload_batches(
         List of upload batches
     """
     user_id = current_user["user_id"]
+    tenant_id = current_user.get("tenant_id", "demo")
 
     try:
-        query = supabase.table("upload_batches").select("*").eq("uploader_user_id", user_id)
+        # Use correct table and column names per tenant
+        if tenant_id == "bibbi":
+            query = supabase.table("uploads").select("*").eq("user_id", user_id)
+            status_col = "status"
+            timestamp_col = "uploaded_at"
+        else:
+            query = supabase.table("upload_batches").select("*").eq("uploader_user_id", user_id)
+            status_col = "processing_status"
+            timestamp_col = "upload_timestamp"
 
         if status:
-            query = query.eq("processing_status", status)
+            query = query.eq(status_col, status)
 
-        query = query.order("upload_timestamp", desc=True).range(offset, offset + limit - 1)
+        query = query.order(timestamp_col, desc=True).range(offset, offset + limit - 1)
 
         result = query.execute()
 
         # Transform field names to match frontend expectations
         transformed_batches = []
         for batch in result.data:
-            transformed = batch.copy()
-            # Map backend field names to frontend field names
-            if 'rows_total' in batch:
-                transformed['total_rows_parsed'] = batch['rows_total']
-            if 'rows_processed' in batch:
-                transformed['successful_inserts'] = batch['rows_processed']
-            if 'rows_failed' in batch:
-                transformed['failed_inserts'] = batch['rows_failed']
+            # Handle different table structures for BIBBI vs demo
+            if tenant_id == "bibbi":
+                # BIBBI uploads table structure
+                transformed = {
+                    'upload_batch_id': batch.get('id'),  # BIBBI uses 'id'
+                    'uploader_user_id': batch.get('user_id'),  # BIBBI uses 'user_id'
+                    'original_filename': batch.get('filename'),  # BIBBI uses 'filename'
+                    'file_size_bytes': batch.get('file_size'),  # BIBBI uses 'file_size'
+                    'vendor_name': batch.get('vendor_name'),  # Now available after migration
+                    'upload_mode': 'append',  # BIBBI doesn't have upload_mode, default to append
+                    'processing_status': batch.get('status'),  # BIBBI uses 'status'
+                    'upload_timestamp': batch.get('uploaded_at'),  # BIBBI uses 'uploaded_at'
+                    'processing_completed_at': batch.get('processing_completed_at'),
+                    # BIBBI row count fields (same names)
+                    'total_rows_parsed': batch.get('rows_total'),
+                    'successful_inserts': batch.get('rows_inserted'),  # BIBBI uses 'rows_inserted'
+                    'failed_inserts': batch.get('rows_invalid')  # BIBBI uses 'rows_invalid'
+                }
+            else:
+                # Demo upload_batches table structure
+                transformed = {
+                    'upload_batch_id': batch.get('upload_batch_id'),
+                    'uploader_user_id': batch.get('uploader_user_id'),
+                    'original_filename': batch.get('original_filename'),
+                    'file_size_bytes': batch.get('file_size_bytes'),
+                    'vendor_name': batch.get('vendor_name'),
+                    'upload_mode': batch.get('upload_mode'),
+                    'processing_status': batch.get('processing_status'),
+                    'upload_timestamp': batch.get('upload_timestamp'),
+                    'processing_completed_at': batch.get('processing_completed_at'),
+                    # Demo row count fields
+                    'total_rows_parsed': batch.get('rows_total'),
+                    'successful_inserts': batch.get('rows_processed'),
+                    'failed_inserts': batch.get('rows_failed')
+                }
             transformed_batches.append(transformed)
 
         return {
@@ -192,25 +242,58 @@ async def get_upload_batch(
         Upload batch details
     """
     user_id = current_user["user_id"]
+    tenant_id = current_user.get("tenant_id", "demo")
 
     try:
-        result = supabase.table("upload_batches").select("*").eq("upload_batch_id", batch_id).eq("uploader_user_id", user_id).execute()
+        # Use correct table and column names per tenant
+        if tenant_id == "bibbi":
+            result = supabase.table("uploads").select("*").eq("id", batch_id).eq("user_id", user_id).execute()
+        else:
+            result = supabase.table("upload_batches").select("*").eq("upload_batch_id", batch_id).eq("uploader_user_id", user_id).execute()
 
         if not result.data:
             raise HTTPException(status_code=404, detail="Batch not found")
 
         # Transform field names to match frontend expectations
-        batch = result.data[0].copy()
-        if 'rows_total' in batch:
-            batch['total_rows_parsed'] = batch['rows_total']
-        if 'rows_processed' in batch:
-            batch['successful_inserts'] = batch['rows_processed']
-        if 'rows_failed' in batch:
-            batch['failed_inserts'] = batch['rows_failed']
+        batch_data = result.data[0]
+
+        # Handle different table structures for BIBBI vs demo
+        if tenant_id == "bibbi":
+            # BIBBI uploads table structure
+            transformed_batch = {
+                'upload_batch_id': batch_data.get('id'),
+                'uploader_user_id': batch_data.get('user_id'),
+                'original_filename': batch_data.get('filename'),
+                'file_size_bytes': batch_data.get('file_size'),
+                'vendor_name': batch_data.get('vendor_name'),
+                'upload_mode': 'append',
+                'processing_status': batch_data.get('status'),
+                'upload_timestamp': batch_data.get('uploaded_at'),
+                'processing_completed_at': batch_data.get('processing_completed_at'),
+                'total_rows_parsed': batch_data.get('rows_total'),
+                'successful_inserts': batch_data.get('rows_inserted'),
+                'failed_inserts': batch_data.get('rows_invalid')
+            }
+        else:
+            # Demo upload_batches table structure
+            transformed_batch = {
+                'upload_batch_id': batch_data.get('upload_batch_id'),
+                'uploader_user_id': batch_data.get('uploader_user_id'),
+                'original_filename': batch_data.get('original_filename'),
+                'file_size_bytes': batch_data.get('file_size_bytes'),
+                'vendor_name': batch_data.get('vendor_name'),
+                'upload_mode': batch_data.get('upload_mode'),
+                'processing_status': batch_data.get('processing_status'),
+                'upload_timestamp': batch_data.get('upload_timestamp'),
+                'processing_completed_at': batch_data.get('processing_completed_at'),
+                'total_rows_parsed': batch_data.get('rows_total'),
+                'successful_inserts': batch_data.get('rows_processed'),
+                'failed_inserts': batch_data.get('rows_failed')
+            }
 
         return {
             "success": True,
-            "batch": batch
+            "batch": transformed_batch
         }
 
     except HTTPException:

@@ -28,7 +28,6 @@ from app.core.bibbi import (
 
 
 router = APIRouter(
-    prefix="/bibbi",
     tags=["BIBBI Reseller Uploads"],
 )
 
@@ -161,6 +160,14 @@ async def upload_bibbi_file(
         409 Conflict: File already uploaded (duplicate detected)
         500 Internal Server Error: Upload processing failed
     """
+    print(f"[BibbιUpload] ═══════════════════════════════════════")
+    print(f"[BibbιUpload] NEW UPLOAD REQUEST")
+    print(f"[BibbιUpload] File: {file.filename}")
+    print(f"[BibbιUpload] Reseller: {reseller_id}")
+    print(f"[BibbιUpload] User: {current_user.get('user_id', 'UNKNOWN')}")
+    print(f"[BibbιUpload] Tenant: {current_user.get('tenant_id', 'UNKNOWN')}")
+    print(f"[BibbιUpload] ═══════════════════════════════════════")
+
     # Validate file extension
     if not validate_file_extension(file.filename):
         raise HTTPException(
@@ -228,8 +235,8 @@ async def upload_bibbi_file(
     # Validate reseller exists (use underlying client - resellers table uses service_key)
     try:
         reseller_check = bibbi_db.client.table("resellers")\
-            .select("reseller_id, name, country")\
-            .eq("reseller_id", reseller_id)\
+            .select("id, reseller, country")\
+            .eq("id", reseller_id)\
             .execute()
 
         if not reseller_check.data:
@@ -245,25 +252,29 @@ async def upload_bibbi_file(
             detail=f"Failed to validate reseller: {str(e)}"
         )
 
-    # Create upload record in upload_batches table (using existing table for now)
+    # Create upload record in uploads table (BIBBI database schema)
     try:
         upload_data = {
-            "upload_batch_id": batch_id,
-            "uploader_user_id": current_user["user_id"],  # Use authenticated user ID
+            "id": batch_id,  # BIBBI uses 'id' not 'upload_batch_id'
+            "user_id": current_user["user_id"],  # BIBBI uses 'user_id' not 'uploader_user_id'
             "reseller_id": reseller_id,
-            "original_filename": file.filename,
-            "file_size_bytes": file_size,
-            "upload_mode": "append",
-            "processing_status": "pending",
-            "upload_timestamp": datetime.utcnow().isoformat(),
+            "filename": file.filename,  # BIBBI uses 'filename' not 'original_filename'
+            "file_size": file_size,  # BIBBI uses 'file_size' not 'file_size_bytes'
+            "status": "pending",  # BIBBI uses 'status' not 'processing_status'
+            "uploaded_at": datetime.utcnow().isoformat(),  # BIBBI uses 'uploaded_at' not 'upload_timestamp'
         }
 
-        result = bibbi_db.client.table("upload_batches").insert(upload_data).execute()
+        print(f"[BibbιUpload] Inserting to uploads table...")
+        print(f"[BibbιUpload] Batch ID: {batch_id}")
+        print(f"[BibbιUpload] Upload data: {upload_data}")
+
+        result = bibbi_db.client.table("uploads").insert(upload_data).execute()
 
         if not result.data:
-            raise Exception("Failed to create upload record")
+            raise Exception("Failed to create upload record - no data returned")
 
-        print(f"[BibbιUpload] Created upload_batches record: {batch_id}")
+        print(f"[BibbιUpload] ✅ Created uploads record: {batch_id}")
+        print(f"[BibbιUpload] Result: {result.data}")
 
     except Exception as e:
         # Cleanup: Delete file if database insert failed
@@ -275,11 +286,24 @@ async def upload_bibbi_file(
             detail=f"Failed to create upload record: {str(e)}"
         )
 
-    # Enqueue Celery task for async processing
+    # Enqueue unified Celery task for async processing
     try:
-        from app.workers.bibbi_tasks import process_bibbi_upload
-        process_bibbi_upload.delay(batch_id, str(file_path))  # Pass batch_id, not upload_id
-        print(f"[BibbιUpload] Celery task enqueued for batch: {batch_id}")
+        from app.workers.unified_tasks import process_unified_upload
+        import base64
+
+        # Convert file content to base64 for worker (separate container, can't access /tmp/bibbi_uploads)
+        file_content_b64 = base64.b64encode(file_content).decode('utf-8')
+
+        # Use unified worker with explicit tenant context
+        process_unified_upload.delay(
+            batch_id=batch_id,
+            user_id=current_user["user_id"],
+            file_content_b64=file_content_b64,
+            filename=file.filename,
+            reseller_id=reseller_id,
+            tenant_id="bibbi"  # CRITICAL: Explicit BIBBI tenant context
+        )
+        print(f"[BibbιUpload] Unified task enqueued for batch: {batch_id}, tenant=bibbi")
     except Exception as e:
         print(f"[BibbιUpload] Warning: Failed to enqueue Celery task: {e}")
         # Don't fail the upload if Celery is down - allow manual retry later

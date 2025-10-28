@@ -1,19 +1,24 @@
 import { useState } from 'react'
-import { useKPIs, useSalesData } from '@/api/analytics'
+import { useDashboardData, useSalesData } from '@/api/analytics'
 import { KPICard } from '@/components/analytics/KPICard'
 import { SalesTable } from '@/components/analytics/SalesTable'
 import { ExportButton } from '@/components/analytics/ExportButton'
+import { TopProductsChart } from '@/components/analytics/TopProductsChart'
+import { TopResellersChart } from '@/components/analytics/TopResellersChart'
+import { ChannelMixCard } from '@/components/analytics/ChannelMixCard'
+import { TopMarketsCard } from '@/components/analytics/TopMarketsCard'
+import { TopStoresCard } from '@/components/analytics/TopStoresCard'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
-import { Euro, Package, TrendingUp, Users, BarChart3, Calendar } from 'lucide-react'
+import { Euro, Package, TrendingUp, ShoppingCart, Zap, Gauge, BarChart3, Calendar } from 'lucide-react'
 
 export function Analytics() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
 
-  const { data: kpis } = useKPIs(dateFrom, dateTo)
+  const { data: dashboard } = useDashboardData(dateFrom, dateTo)
   const { data: salesData } = useSalesData({
     date_from: dateFrom,
     date_to: dateTo,
@@ -109,37 +114,75 @@ export function Analytics() {
         </CardContent>
       </Card>
 
-      {/* KPIs */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+      {/* KPIs - 10 Cards in 2 rows */}
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-5">
         <KPICard
           title="Total Revenue"
-          value={kpis ? formatCurrency(kpis.total_revenue) : '€0'}
+          value={dashboard ? formatCurrency(dashboard.kpis.total_revenue) : '€0'}
           icon={Euro}
           subtitle="All channels"
           className="hover:shadow-md transition-all duration-200 hover:scale-[1.02]"
         />
         <KPICard
           title="Total Units"
-          value={kpis?.total_units.toLocaleString() || '0'}
+          value={dashboard?.kpis.total_units.toLocaleString() || '0'}
           icon={Package}
           subtitle="Items sold"
           className="hover:shadow-md transition-all duration-200 hover:scale-[1.02]"
         />
         <KPICard
-          title="Average Price"
-          value={kpis ? formatCurrency(kpis.avg_price) : '€0'}
+          title="Average Order Value"
+          value={dashboard ? formatCurrency(dashboard.kpis.average_order_value) : '€0'}
           icon={TrendingUp}
-          subtitle="Per unit"
+          subtitle="Per transaction"
           className="hover:shadow-md transition-all duration-200 hover:scale-[1.02]"
         />
         <KPICard
-          title="Resellers"
-          value={kpis?.top_resellers.length || 0}
-          icon={Users}
-          subtitle="Active partners"
+          title="Units Per Transaction"
+          value={dashboard?.kpis.units_per_transaction.toFixed(1) || '0'}
+          icon={Gauge}
+          subtitle="Average units"
+          className="hover:shadow-md transition-all duration-200 hover:scale-[1.02]"
+        />
+        <KPICard
+          title="Order Count"
+          value={dashboard?.kpis.order_count.toLocaleString() || '0'}
+          icon={ShoppingCart}
+          subtitle="Total orders"
+          className="hover:shadow-md transition-all duration-200 hover:scale-[1.02]"
+        />
+        <KPICard
+          title="Fast Moving Products"
+          value={dashboard?.kpis.fast_moving_products.toLocaleString() || '0'}
+          icon={Zap}
+          subtitle="Sold in 30 days"
+          className="hover:shadow-md transition-all duration-200 hover:scale-[1.02]"
+        />
+        <KPICard
+          title="Slow Moving Products"
+          value={dashboard?.kpis.slow_moving_products.toLocaleString() || '0'}
+          icon={Package}
+          subtitle="Over 90 days"
           className="hover:shadow-md transition-all duration-200 hover:scale-[1.02]"
         />
       </div>
+
+      {/* Bar Charts Section */}
+      {dashboard && dashboard.charts && (
+        <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-2">
+          <TopProductsChart data={dashboard.charts.top_products} />
+          <TopResellersChart data={dashboard.charts.top_resellers} />
+        </div>
+      )}
+
+      {/* Metrics Cards Section */}
+      {dashboard && dashboard.metrics && (
+        <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-3">
+          <ChannelMixCard data={dashboard.metrics.channel_mix} />
+          <TopMarketsCard data={dashboard.metrics.top_markets} />
+          <TopStoresCard data={dashboard.metrics.top_stores} />
+        </div>
+      )}
 
       {/* Sales Table */}
       {salesData && salesData.sales.length > 0 && (

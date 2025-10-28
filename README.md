@@ -23,6 +23,24 @@ Background Worker (Celery + Redis)
 Database (Supabase PostgreSQL 17)
 ```
 
+## 📚 Complete Documentation
+
+**Choose your guide based on your needs:**
+
+| I want to... | Read this guide |
+|--------------|-----------------|
+| **Understand what TaskifAI does and how it works** | [Platform Guide](claudedocs/PLATFORM_GUIDE.md) - Complete overview of the platform, features, and architecture |
+| **Use TaskifAI as an analyst or manager** | [User Guide](claudedocs/USER_GUIDE.md) - How to upload files, create dashboards, and use AI chat |
+| **Develop features or add vendor processors** | [Developer Guide](claudedocs/DEVELOPER_GUIDE.md) - Development workflows, patterns, and best practices |
+| **Understand multi-tenant architecture** | [Architecture Clarity](claudedocs/architecture_clarity.md) - Multi-tenant design decisions and rationale |
+| **Add a new vendor processor** | [Adding Vendor Processors](claudedocs/adding_vendor_processors.md) - Step-by-step guide |
+| **Review recent refactoring** | [Refactoring Summary](claudedocs/refactoring_summary.md) - DRY refactoring details and impact |
+
+**Technical Documentation**:
+- [System Architecture](docs/architecture/SYSTEM_OVERVIEW.md) - Detailed technical architecture
+- [API Reference](docs/api/README.md) - Complete REST API documentation
+- [Data Model](docs/architecture/04_Data_Model.md) - Database schema and relationships
+
 ## 📋 Prerequisites
 
 - **Node.js** 20+ (for frontend)

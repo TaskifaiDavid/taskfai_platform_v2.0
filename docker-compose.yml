@@ -59,7 +59,7 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - ./backend/.env
+      - ./backend/.env.local  # Changed from .env to .env.local for local development
     environment:
       - DATABASE_URL=postgresql://taskifai:taskifai_dev_password@db:5432/taskifai
       - REDIS_URL=redis://redis:6379/0
@@ -75,11 +75,14 @@ services:
         condition: service_healthy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     networks:
       - taskifai-network
 
@@ -92,7 +95,7 @@ services:
       dockerfile: Dockerfile
     container_name: taskifai-worker
     env_file:
-      - ./backend/.env
+      - ./backend/.env.local  # Changed from .env to .env.local for local development
     environment:
       - DATABASE_URL=postgresql://taskifai:taskifai_dev_password@db:5432/taskifai
       - REDIS_URL=redis://redis:6379/0
@@ -106,6 +109,9 @@ services:
       db:
         condition: service_healthy
     command: celery -A app.workers.celery_app worker --loglevel=info
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     networks:
       - taskifai-network
 
@@ -120,7 +126,7 @@ services:
     ports:
       - "5173:5173"
     env_file:
-      - ./frontend/.env
+      - ./frontend/.env.local  # Changed from .env to .env.local for local development
     environment:
       - VITE_API_URL=http://localhost:8000
       - VITE_ENVIRONMENT=development

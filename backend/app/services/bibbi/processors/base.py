@@ -19,6 +19,12 @@ import openpyxl
 from openpyxl.worksheet.worksheet import Worksheet
 
 from app.core.bibbi import BIBBI_TENANT_ID
+from app.utils.validation import validate_ean, to_int, to_float
+from app.utils.excel import (
+    extract_rows_from_sheet,
+    get_sheet_headers,
+    safe_load_workbook
+)
 
 
 class ProcessingResult:
@@ -233,55 +239,48 @@ class BibbiBseProcessor(ABC):
         )
 
     # Utility methods for common operations
+    # NOTE: Common utilities now imported from app.utils.validation and app.utils.excel
 
     def _load_workbook(self, file_path: str, read_only: bool = True):
-        """Load Excel workbook safely"""
-        return openpyxl.load_workbook(file_path, read_only=read_only, data_only=True)
+        """
+        Load Excel workbook safely
+
+        Uses shared utility: app.utils.excel.safe_load_workbook
+        """
+        return safe_load_workbook(file_path, data_only=True, read_only=read_only)
 
     def _get_sheet_headers(self, sheet: Worksheet) -> List[str]:
-        """Extract column headers from first row"""
-        headers = []
-        for cell in sheet[1]:
-            if cell.value:
-                headers.append(str(cell.value).strip())
-            else:
-                headers.append("")
-        return headers
+        """
+        Extract column headers from first row
 
-    def _validate_ean(self, value: Any) -> str:
+        Uses shared utility: app.utils.excel.get_sheet_headers
+        """
+        return get_sheet_headers(sheet, header_row=1)
+
+    def _validate_ean(self, value: Any, required: bool = True) -> Optional[str]:
         """
         Validate and normalize EAN code
 
+        Uses shared utility: app.utils.validation.validate_ean
+
         Args:
             value: EAN value from Excel
+            required: If False, returns None for empty values
 
         Returns:
-            Normalized 13-digit EAN string
+            Normalized 13-digit EAN string or None if not required
 
         Raises:
-            ValueError: If EAN is invalid
+            ValueError: If EAN is invalid and required=True
         """
-        if not value:
-            raise ValueError("EAN cannot be empty")
-
-        ean_str = str(value).strip()
-
-        # Remove decimal point if present (Excel sometimes formats as float)
-        if '.' in ean_str:
-            ean_str = ean_str.split('.')[0]
-
-        # Remove any non-digit characters
-        ean_str = ''.join(c for c in ean_str if c.isdigit())
-
-        # Validate length (13 digits for EAN-13)
-        if len(ean_str) != 13:
-            raise ValueError(f"Invalid EAN length: {len(ean_str)} (expected 13)")
-
-        return ean_str
+        return validate_ean(value, required=required, strict=True)
 
     def _to_int(self, value: Any, field_name: str) -> int:
         """
         Convert value to integer safely
+
+        Uses shared utility: app.utils.validation.to_int
+        Extended with accounting notation support: "(123)" = -123
 
         Args:
             value: Value to convert
@@ -293,47 +292,40 @@ class BibbiBseProcessor(ABC):
         Raises:
             ValueError: If conversion fails
         """
-        if value is None or value == "":
-            raise ValueError(f"{field_name} cannot be None or empty")
+        # Handle accounting notation: "(123)" means negative
+        if isinstance(value, str):
+            value = value.strip()
+            if value.startswith('(') and value.endswith(')'):
+                value = '-' + value[1:-1]
 
-        try:
-            # Handle strings like "(123)" as negative
-            if isinstance(value, str):
-                value = value.strip()
-                if value.startswith('(') and value.endswith(')'):
-                    value = '-' + value[1:-1]
-
-            return int(float(value))
-        except (ValueError, TypeError):
-            raise ValueError(f"Invalid integer for {field_name}: {value}")
+        # Use shared utility for standard conversion
+        return to_int(value, field_name)
 
     def _to_float(self, value: Any, field_name: str) -> float:
         """
         Convert value to float safely
+
+        Uses shared utility: app.utils.validation.to_float
+        Extended with accounting notation support: "(123.45)" = -123.45
 
         Args:
             value: Value to convert
             field_name: Field name for error messages
 
         Returns:
-            Float value
+            Float value (defaults to 0.0 for None/empty)
 
         Raises:
             ValueError: If conversion fails
         """
-        if value is None or value == "":
-            return 0.0
+        # Handle accounting notation: "(123.45)" means negative
+        if isinstance(value, str):
+            value = value.strip()
+            if value.startswith('(') and value.endswith(')'):
+                value = '-' + value[1:-1]
 
-        try:
-            # Handle strings like "(123.45)" as negative
-            if isinstance(value, str):
-                value = value.strip()
-                if value.startswith('(') and value.endswith(')'):
-                    value = '-' + value[1:-1]
-
-            return float(value)
-        except (ValueError, TypeError):
-            raise ValueError(f"Invalid float for {field_name}: {value}")
+        # Use shared utility with allow_none=True, default=0.0
+        return to_float(value, field_name, allow_none=True, default=0.0)
 
     def _to_decimal(self, value: Any, field_name: str) -> Decimal:
         """

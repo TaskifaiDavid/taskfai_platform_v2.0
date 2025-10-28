@@ -157,11 +157,39 @@ def _process_bibbi(context: UploadContext) -> Dict[str, Any]:
 
     print(f"[BIBBI] Processing vendor={context.detected_vendor}, reseller={context.reseller_id}")
 
-    # Get BIBBI database client
-    bibbi_db = get_worker_supabase_client(context.tenant_id)
+    # Get BIBBI database client - EXPLICIT "bibbi" tenant for clarity
+    # FIX: Always use "bibbi" explicitly when routing to BIBBI processor
+    bibbi_db = get_worker_supabase_client("bibbi")
 
-    # Get processor instance
-    processor = upload_pipeline.get_bibbi_processor(context.detected_vendor, context.reseller_id)
+    # FIX: Ensure upload record exists in BIBBI database for FK constraint
+    # The API created upload in source database (e.g., DEMO), but BIBBI processor
+    # needs it in BIBBI database for sales_unified.upload_id foreign key
+    existing_upload = bibbi_db.table("uploads").select("id").eq("id", context.batch_id).execute()
+
+    if not existing_upload.data:
+        # Create upload record with BIBBI schema
+        from datetime import datetime
+        upload_record = {
+            "id": context.batch_id,
+            "user_id": context.user_id,
+            "filename": context.filename,
+            "file_size": 0,  # Unknown in worker context - API has actual size
+            "status": "processing",
+            "uploaded_at": datetime.utcnow().isoformat(),
+            "processing_started_at": datetime.utcnow().isoformat()
+        }
+
+        try:
+            bibbi_db.table("uploads").insert(upload_record).execute()
+            print(f"[BIBBI] ✓ Created upload record in BIBBI database: {context.batch_id}")
+        except Exception as e:
+            print(f"[BIBBI] Warning: Failed to create upload in BIBBI database: {e}")
+            # Continue processing - update calls will handle via upsert
+    else:
+        print(f"[BIBBI] ✓ Upload record already exists in BIBBI database: {context.batch_id}")
+
+    # Get processor instance (pass bibbi_db for Liberty/Galilu product lookups)
+    processor = upload_pipeline.get_bibbi_processor(context.detected_vendor, context.reseller_id, bibbi_db)
 
     # STEP 1: Parse file with vendor processor
     print(f"[BIBBI] Step 1: Parsing file with {context.detected_vendor} processor")

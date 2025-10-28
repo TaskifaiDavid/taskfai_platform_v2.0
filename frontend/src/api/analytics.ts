@@ -1,11 +1,22 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import apiClient from '@/lib/api'
-import type { KPIs, SalesFilter, SalesResponse, ExportRequest, ExportResponse } from '@/types'
+import type { KPIs, SalesFilter, SalesResponse, ExportRequest, ExportResponse, DashboardData } from '@/types'
 
 export function useKPIs(dateFrom?: string, dateTo?: string) {
   return useQuery({
     queryKey: ['kpis', dateFrom, dateTo],
     queryFn: () => apiClient.get<KPIs>('/api/analytics/kpis', { date_from: dateFrom, date_to: dateTo }),
+  })
+}
+
+export function useDashboardData(dateFrom?: string, dateTo?: string, channel?: string) {
+  return useQuery({
+    queryKey: ['dashboard', dateFrom, dateTo, channel],
+    queryFn: () => apiClient.get<DashboardData>('/api/analytics/dashboard', {
+      start_date: dateFrom,
+      end_date: dateTo,
+      channel
+    }),
   })
 }
 

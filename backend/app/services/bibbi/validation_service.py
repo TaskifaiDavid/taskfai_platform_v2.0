@@ -87,8 +87,7 @@ class BibbιValidationService:
         "customer_id",
         "sales_local_currency",
         "currency",
-        "is_return",
-        "return_quantity"
+        "is_return"
     ]
 
     def __init__(self, bibbi_db: BibbιDB):

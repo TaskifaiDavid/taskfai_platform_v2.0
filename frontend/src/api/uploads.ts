@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import apiClient from '@/lib/api'
 import type { Upload, UploadError } from '@/types'
+import { useAuthStore } from '@/stores/auth'
 
 // Backend response type with database field names
 interface BackendUpload {
@@ -35,13 +36,28 @@ function transformUpload(backendUpload: BackendUpload): Upload {
 
 export function useUploadFile() {
   const queryClient = useQueryClient()
+  const { user } = useAuthStore()
 
   return useMutation({
-    mutationFn: ({ file, mode = 'append' }: { file: File; mode?: 'append' | 'replace' }) => {
+    mutationFn: ({ file, mode = 'append', resellerId }: {
+      file: File
+      mode?: 'append' | 'replace'
+      resellerId?: string
+    }) => {
       const formData = new FormData()
       formData.append('file', file)
       formData.append('mode', mode)
-      return apiClient.getClient().post<Upload>('/api/uploads', formData, {
+
+      if (resellerId) {
+        formData.append('reseller_id', resellerId)
+      }
+
+      // Route to correct endpoint based on tenant
+      const uploadEndpoint = user?.tenant_id === 'bibbi'
+        ? '/api/bibbi/uploads'
+        : '/api/uploads'
+
+      return apiClient.getClient().post<Upload>(uploadEndpoint, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       }).then(res => res.data)
     },

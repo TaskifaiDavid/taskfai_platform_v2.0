@@ -28,6 +28,11 @@ export enum WidgetType {
   CATEGORY_REVENUE = 'category_revenue',
   REVENUE_CHART = 'revenue_chart',
   SALES_TREND = 'sales_trend',
+  TOP_PRODUCTS_CHART = 'top_products_chart',
+  TOP_RESELLERS_CHART = 'top_resellers_chart',
+  CHANNEL_MIX = 'channel_mix',
+  TOP_MARKETS = 'top_markets',
+  TOP_STORES = 'top_stores',
 }
 
 export interface WidgetPosition {

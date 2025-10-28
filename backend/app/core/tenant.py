@@ -84,7 +84,7 @@ class TenantContextManager:
     def get_bibbi_context() -> TenantContext:
         """Get BIBBI tenant context for local testing"""
         return TenantContext(
-            tenant_id="bibbi",
+            tenant_id="5d15bb52-7fef-4b56-842d-e752f3d01292",
             company_name="BIBBI Parfum",
             subdomain="bibbi",
             is_active=True

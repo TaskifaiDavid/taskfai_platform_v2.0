@@ -4,11 +4,15 @@ KPI calculator for analytics dashboard.
 IMPORTANT: This service uses Supabase service_key which bypasses Row-Level Security (RLS).
 All queries MUST explicitly filter by user_id to ensure proper data isolation.
 Without explicit user_id filtering, queries will return data across all tenants.
+
+BIBBI MODE: When TENANT_ID_OVERRIDE=bibbi, user filtering is skipped because Bibbi
+uses a dedicated single-tenant Supabase database with project-level isolation.
 """
 
 from typing import Dict, Any, Optional
 from datetime import date, datetime
 from decimal import Decimal
+import os
 from supabase import Client
 
 
@@ -23,6 +27,7 @@ class KPICalculator:
             supabase: Supabase client for database operations
         """
         self.supabase = supabase
+        self.is_bibbi_mode = os.getenv("TENANT_ID_OVERRIDE") == "bibbi"
 
     def calculate_kpis(
         self,
@@ -105,8 +110,16 @@ class KPICalculator:
     ) -> Dict[str, Any]:
         """Calculate offline (B2B) sales KPIs"""
 
-        # Query sellout_entries2 table with user_id filter
-        query = self.supabase.table("sellout_entries2").select("sales_eur,quantity,reseller_id,product_id,month,year").eq("user_id", user_id)
+        # Query sales_unified table
+        # In BIBBI mode (single-tenant database), skip user filtering
+        # In multi-tenant mode, filter by user_id via uploads JOIN
+        if self.is_bibbi_mode:
+            query = self.supabase.table("sales_unified")\
+                .select("sales_eur,quantity,reseller_id,product_ean,month,year")
+        else:
+            query = self.supabase.table("sales_unified")\
+                .select("sales_eur,quantity,reseller_id,product_ean,month,year,uploads!inner(user_id)")\
+                .eq("uploads.user_id", user_id)
 
         # Apply date filters if provided
         # Note: Supabase REST API doesn't support complex date operations easily
@@ -138,7 +151,7 @@ class KPICalculator:
         total_revenue = sum(Decimal(str(r.get('sales_eur', 0) or 0)) for r in records)
         total_units = sum(int(r.get('quantity', 0) or 0) for r in records)
         unique_resellers = len(set(r.get('reseller_id') for r in records if r.get('reseller_id')))
-        unique_products = len(set(r.get('product_id') for r in records if r.get('product_id')))
+        unique_products = len(set(r.get('product_ean') for r in records if r.get('product_ean')))
 
         return {
             'transaction_count': len(records),
@@ -157,14 +170,24 @@ class KPICalculator:
     ) -> Dict[str, Any]:
         """Calculate online (D2C) sales KPIs"""
 
-        # Query ecommerce_orders table with user_id filter
-        query = self.supabase.table("ecommerce_orders").select("sales_eur,quantity,cost_of_goods,stripe_fee,country,order_date").eq("user_id", user_id)
+        # Query sales_unified table
+        # In BIBBI mode (single-tenant database), skip user filtering
+        # Filter by sales_channel='online' for D2C sales
+        if self.is_bibbi_mode:
+            query = self.supabase.table("sales_unified")\
+                .select("sales_eur,quantity,cost_of_goods,payment_processing_fee,country,sale_date")\
+                .eq("sales_channel", "online")
+        else:
+            query = self.supabase.table("sales_unified")\
+                .select("sales_eur,quantity,cost_of_goods,payment_processing_fee,country,sale_date,uploads!inner(user_id)")\
+                .eq("uploads.user_id", user_id)\
+                .eq("sales_channel", "online")
 
         # Apply date filters if provided
         if start_date:
-            query = query.gte("order_date", start_date.isoformat())
+            query = query.gte("sale_date", start_date.isoformat())
         if end_date:
-            query = query.lte("order_date", end_date.isoformat())
+            query = query.lte("sale_date", end_date.isoformat())
 
         result = query.limit(100000).execute()
 
@@ -187,7 +210,7 @@ class KPICalculator:
         total_revenue = sum(Decimal(str(r.get('sales_eur', 0) or 0)) for r in records)
         total_units = sum(int(r.get('quantity', 0) or 0) for r in records)
         total_cogs = sum(Decimal(str(r.get('cost_of_goods', 0) or 0)) for r in records)
-        total_fees = sum(Decimal(str(r.get('stripe_fee', 0) or 0)) for r in records)
+        total_fees = sum(Decimal(str(r.get('payment_processing_fee', 0) or 0)) for r in records)
         unique_countries = len(set(r.get('country') for r in records if r.get('country')))
 
         gross_profit = total_revenue - total_cogs - total_fees
@@ -270,8 +293,16 @@ class KPICalculator:
     ) -> list[Dict[str, Any]]:
         """Get top offline products"""
 
-        # Query sellout_entries2 with user_id filter
-        query = self.supabase.table("sellout_entries2").select("functional_name,product_ean,sales_eur,quantity,month,year").eq("user_id", user_id)
+        # In BIBBI mode (single-tenant database), skip user filtering
+        # In multi-tenant mode, filter by user_id via uploads JOIN
+        if self.is_bibbi_mode:
+            query = self.supabase.table("sales_unified")\
+                .select("functional_name,product_ean,sales_eur,quantity,month,year")
+        else:
+            query = self.supabase.table("sales_unified")\
+                .select("functional_name,product_ean,sales_eur,quantity,month,year,uploads!inner(user_id)")\
+                .eq("uploads.user_id", user_id)
+
         result = query.limit(100000).execute()
 
         if not result.data:
@@ -318,14 +349,24 @@ class KPICalculator:
     ) -> list[Dict[str, Any]]:
         """Get top online products"""
 
-        # Query ecommerce_orders with user_id filter
-        query = self.supabase.table("ecommerce_orders").select("functional_name,product_ean,sales_eur,quantity,order_date").eq("user_id", user_id)
+        # In BIBBI mode (single-tenant database), skip user filtering
+        # In multi-tenant mode, filter by user_id via uploads JOIN
+        # Filter by sales_channel='online' for D2C sales
+        if self.is_bibbi_mode:
+            query = self.supabase.table("sales_unified")\
+                .select("functional_name,product_ean,sales_eur,quantity,sale_date")\
+                .eq("sales_channel", "online")
+        else:
+            query = self.supabase.table("sales_unified")\
+                .select("functional_name,product_ean,sales_eur,quantity,sale_date,uploads!inner(user_id)")\
+                .eq("uploads.user_id", user_id)\
+                .eq("sales_channel", "online")
 
         # Apply date filters
         if start_date:
-            query = query.gte("order_date", start_date.isoformat())
+            query = query.gte("sale_date", start_date.isoformat())
         if end_date:
-            query = query.lte("order_date", end_date.isoformat())
+            query = query.lte("sale_date", end_date.isoformat())
 
         result = query.limit(100000).execute()
 
@@ -370,16 +411,488 @@ class KPICalculator:
         Returns:
             Count of completed uploads
         """
-        query = self.supabase.table("upload_batches")\
-            .select("upload_batch_id", count="exact")\
-            .eq("uploader_user_id", user_id)\
-            .eq("processing_status", "completed")
+        # In BIBBI mode (single-tenant database), skip user filtering
+        # In multi-tenant mode, filter by user_id
+        if self.is_bibbi_mode:
+            query = self.supabase.table("uploads")\
+                .select("id", count="exact")\
+                .eq("status", "completed")
+        else:
+            query = self.supabase.table("uploads")\
+                .select("id", count="exact")\
+                .eq("user_id", user_id)\
+                .eq("status", "completed")
 
         # Apply date filters if provided
         if start_date:
-            query = query.gte("upload_timestamp", start_date.isoformat())
+            query = query.gte("uploaded_at", start_date.isoformat())
         if end_date:
-            query = query.lte("upload_timestamp", end_date.isoformat())
+            query = query.lte("uploaded_at", end_date.isoformat())
 
         result = query.limit(100000).execute()
         return result.count or 0
+
+    def calculate_units_per_transaction(
+        self,
+        user_id: str,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        channel: Optional[str] = None
+    ) -> float:
+        """
+        Calculate average units per transaction
+
+        Args:
+            user_id: User ID for RLS filtering
+            start_date: Start date filter (optional)
+            end_date: End date filter (optional)
+            channel: Sales channel filter (optional)
+
+        Returns:
+            Average units per transaction
+        """
+        # In BIBBI mode (single-tenant database), skip user filtering
+        # In multi-tenant mode, filter by user_id via upload_batches JOIN
+        if self.is_bibbi_mode:
+            query = self.supabase.table("sales_unified")\
+                .select("quantity,id")
+        else:
+            query = self.supabase.table("sales_unified")\
+                .select("quantity,id,upload_batches!inner(uploader_user_id)")\
+                .eq("upload_batches.uploader_user_id", user_id)
+
+        # Apply channel filter
+        if channel:
+            query = query.eq("sales_channel", channel)
+
+        # Apply date filters
+        if start_date:
+            query = query.gte("sale_date", start_date.isoformat())
+        if end_date:
+            query = query.lte("sale_date", end_date.isoformat())
+
+        result = query.limit(100000).execute()
+
+        if not result.data or len(result.data) == 0:
+            return 0.0
+
+        total_units = sum(int(r.get('quantity', 0) or 0) for r in result.data)
+        transaction_count = len(result.data)
+
+        return round(total_units / transaction_count, 2) if transaction_count > 0 else 0.0
+
+    def calculate_channel_mix(
+        self,
+        user_id: str,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None
+    ) -> list[Dict[str, Any]]:
+        """
+        Calculate revenue and units breakdown by sales channel
+
+        Args:
+            user_id: User ID for RLS filtering
+            start_date: Start date filter (optional)
+            end_date: End date filter (optional)
+
+        Returns:
+            List of channel mix data with revenue, units, and percentage
+        """
+        # In BIBBI mode (single-tenant database), skip user filtering
+        # In multi-tenant mode, filter by user_id via upload_batches JOIN
+        if self.is_bibbi_mode:
+            query = self.supabase.table("sales_unified")\
+                .select("sales_channel,sales_eur,quantity")
+        else:
+            query = self.supabase.table("sales_unified")\
+                .select("sales_channel,sales_eur,quantity,upload_batches!inner(uploader_user_id)")\
+                .eq("upload_batches.uploader_user_id", user_id)
+
+        # Apply date filters
+        if start_date:
+            query = query.gte("sale_date", start_date.isoformat())
+        if end_date:
+            query = query.lte("sale_date", end_date.isoformat())
+
+        result = query.limit(100000).execute()
+
+        if not result.data:
+            return []
+
+        # Group by channel
+        channel_data = {}
+        total_revenue = Decimal(0)
+        total_units = 0
+
+        for r in result.data:
+            channel = r.get('sales_channel') or 'unknown'
+            revenue = Decimal(str(r.get('sales_eur', 0) or 0))
+            units = int(r.get('quantity', 0) or 0)
+
+            if channel not in channel_data:
+                channel_data[channel] = {
+                    'channel': channel,
+                    'revenue': Decimal(0),
+                    'units': 0,
+                    'transactions': 0
+                }
+
+            channel_data[channel]['revenue'] += revenue
+            channel_data[channel]['units'] += units
+            channel_data[channel]['transactions'] += 1
+            total_revenue += revenue
+            total_units += units
+
+        # Calculate percentages and format output
+        result_list = []
+        for channel, data in channel_data.items():
+            revenue_pct = (data['revenue'] / total_revenue * 100) if total_revenue > 0 else 0
+            units_pct = (data['units'] / total_units * 100) if total_units > 0 else 0
+
+            result_list.append({
+                'channel': channel,
+                'revenue': float(data['revenue']),
+                'revenue_percentage': round(float(revenue_pct), 2),
+                'units': data['units'],
+                'units_percentage': round(float(units_pct), 2),
+                'transactions': data['transactions']
+            })
+
+        # Sort by revenue descending
+        result_list.sort(key=lambda x: x['revenue'], reverse=True)
+        return result_list
+
+    def get_top_markets(
+        self,
+        user_id: str,
+        limit: int = 7,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None
+    ) -> list[Dict[str, Any]]:
+        """
+        Get top markets (countries) by revenue
+
+        Args:
+            user_id: User ID for RLS filtering
+            limit: Number of top markets to return
+            start_date: Start date filter (optional)
+            end_date: End date filter (optional)
+
+        Returns:
+            List of top markets with revenue and units
+        """
+        # In BIBBI mode (single-tenant database), skip user filtering
+        # In multi-tenant mode, filter by user_id via upload_batches JOIN
+        if self.is_bibbi_mode:
+            query = self.supabase.table("sales_unified")\
+                .select("country,sales_eur,quantity")
+        else:
+            query = self.supabase.table("sales_unified")\
+                .select("country,sales_eur,quantity,upload_batches!inner(uploader_user_id)")\
+                .eq("upload_batches.uploader_user_id", user_id)
+
+        # Apply date filters
+        if start_date:
+            query = query.gte("sale_date", start_date.isoformat())
+        if end_date:
+            query = query.lte("sale_date", end_date.isoformat())
+
+        result = query.limit(100000).execute()
+
+        if not result.data:
+            return []
+
+        # Group by country
+        markets = {}
+        for r in result.data:
+            country = r.get('country') or 'Unknown'
+            revenue = float(r.get('sales_eur', 0) or 0)
+            units = int(r.get('quantity', 0) or 0)
+
+            if country not in markets:
+                markets[country] = {
+                    'country': country,
+                    'revenue': 0,
+                    'units': 0,
+                    'transactions': 0
+                }
+
+            markets[country]['revenue'] += revenue
+            markets[country]['units'] += units
+            markets[country]['transactions'] += 1
+
+        # Sort by revenue and return top N
+        sorted_markets = sorted(markets.values(), key=lambda x: x['revenue'], reverse=True)
+        return sorted_markets[:limit]
+
+    def get_top_resellers(
+        self,
+        user_id: str,
+        limit: int = 10,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None
+    ) -> list[Dict[str, Any]]:
+        """
+        Get top resellers by revenue (for bar chart)
+
+        Args:
+            user_id: User ID for RLS filtering
+            limit: Number of top resellers to return
+            start_date: Start date filter (optional)
+            end_date: End date filter (optional)
+
+        Returns:
+            List of top resellers with revenue, units, and store count
+        """
+        # In BIBBI mode (single-tenant database), skip user filtering
+        # In multi-tenant mode, filter by user_id via upload_batches JOIN
+        if self.is_bibbi_mode:
+            query = self.supabase.table("sales_unified")\
+                .select("reseller_id,sales_eur,quantity,store_id")
+        else:
+            query = self.supabase.table("sales_unified")\
+                .select("reseller_id,sales_eur,quantity,store_id,upload_batches!inner(uploader_user_id)")\
+                .eq("upload_batches.uploader_user_id", user_id)
+
+        # Apply date filters
+        if start_date:
+            query = query.gte("sale_date", start_date.isoformat())
+        if end_date:
+            query = query.lte("sale_date", end_date.isoformat())
+
+        result = query.limit(100000).execute()
+
+        if not result.data:
+            return []
+
+        # Group by reseller
+        resellers = {}
+        for r in result.data:
+            reseller_id = r.get('reseller_id')
+            if not reseller_id:
+                continue
+
+            revenue = float(r.get('sales_eur', 0) or 0)
+            units = int(r.get('quantity', 0) or 0)
+            store_id = r.get('store_id')
+
+            if reseller_id not in resellers:
+                resellers[reseller_id] = {
+                    'reseller_id': reseller_id,
+                    'revenue': 0,
+                    'units': 0,
+                    'transactions': 0,
+                    'stores': set()
+                }
+
+            resellers[reseller_id]['revenue'] += revenue
+            resellers[reseller_id]['units'] += units
+            resellers[reseller_id]['transactions'] += 1
+            if store_id:
+                resellers[reseller_id]['stores'].add(store_id)
+
+        # Get reseller names
+        reseller_ids = list(resellers.keys())
+        if reseller_ids:
+            resellers_result = self.supabase.table("resellers")\
+                .select("id,reseller")\
+                .in_("id", reseller_ids)\
+                .execute()
+
+            reseller_names = {r['id']: r['reseller'] for r in resellers_result.data}
+
+            # Add names to results
+            for reseller_id, data in resellers.items():
+                data['reseller_name'] = reseller_names.get(reseller_id, 'Unknown')
+                data['store_count'] = len(data['stores'])
+                del data['stores']  # Remove set (not JSON serializable)
+        else:
+            for data in resellers.values():
+                data['reseller_name'] = 'Unknown'
+                data['store_count'] = 0
+                del data['stores']
+
+        # Sort by revenue and return top N
+        sorted_resellers = sorted(resellers.values(), key=lambda x: x['revenue'], reverse=True)
+        return sorted_resellers[:limit]
+
+    def get_top_stores(
+        self,
+        user_id: str,
+        limit: int = 10,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None
+    ) -> list[Dict[str, Any]]:
+        """
+        Get top performing stores by revenue
+
+        Args:
+            user_id: User ID for RLS filtering
+            limit: Number of top stores to return
+            start_date: Start date filter (optional)
+            end_date: End date filter (optional)
+
+        Returns:
+            List of top stores with revenue and units
+        """
+        # In BIBBI mode (single-tenant database), skip user filtering
+        # In multi-tenant mode, filter by user_id via upload_batches JOIN
+        if self.is_bibbi_mode:
+            query = self.supabase.table("sales_unified")\
+                .select("store_id,sales_eur,quantity")
+        else:
+            query = self.supabase.table("sales_unified")\
+                .select("store_id,sales_eur,quantity,upload_batches!inner(uploader_user_id)")\
+                .eq("upload_batches.uploader_user_id", user_id)
+
+        # Apply date filters
+        if start_date:
+            query = query.gte("sale_date", start_date.isoformat())
+        if end_date:
+            query = query.lte("sale_date", end_date.isoformat())
+
+        result = query.limit(100000).execute()
+
+        if not result.data:
+            return []
+
+        # Group by store
+        stores = {}
+        for r in result.data:
+            store_id = r.get('store_id')
+            if not store_id:
+                continue
+
+            revenue = float(r.get('sales_eur', 0) or 0)
+            units = int(r.get('quantity', 0) or 0)
+
+            if store_id not in stores:
+                stores[store_id] = {
+                    'store_id': store_id,
+                    'revenue': 0,
+                    'units': 0,
+                    'transactions': 0
+                }
+
+            stores[store_id]['revenue'] += revenue
+            stores[store_id]['units'] += units
+            stores[store_id]['transactions'] += 1
+
+        # Get store details
+        store_ids = list(stores.keys())
+        if store_ids:
+            stores_result = self.supabase.table("stores")\
+                .select("store_id,store_name,city,country")\
+                .in_("store_id", store_ids)\
+                .execute()
+
+            store_details = {s['store_id']: s for s in stores_result.data}
+
+            # Add store details to results
+            for store_id, data in stores.items():
+                details = store_details.get(store_id, {})
+                data['store_name'] = details.get('store_name', 'Unknown')
+                data['city'] = details.get('city', 'Unknown')
+                data['country'] = details.get('country', 'Unknown')
+        else:
+            for data in stores.values():
+                data['store_name'] = 'Unknown'
+                data['city'] = 'Unknown'
+                data['country'] = 'Unknown'
+
+        # Sort by revenue and return top N
+        sorted_stores = sorted(stores.values(), key=lambda x: x['revenue'], reverse=True)
+        return sorted_stores[:limit]
+
+    def calculate_product_velocity(
+        self,
+        user_id: str,
+        fast_days: int = 30,
+        slow_days: int = 90
+    ) -> Dict[str, Any]:
+        """
+        Calculate product velocity (fast-moving vs slow-moving products)
+
+        Args:
+            user_id: User ID for RLS filtering
+            fast_days: Days threshold for fast-moving products
+            slow_days: Days threshold for slow-moving products
+
+        Returns:
+            Dictionary with fast and slow moving product counts and lists
+        """
+        from datetime import timedelta
+        today = date.today()
+        fast_date = today - timedelta(days=fast_days)
+        slow_date = today - timedelta(days=slow_days)
+
+        # In BIBBI mode (single-tenant database), skip user filtering
+        # In multi-tenant mode, filter by user_id via upload_batches JOIN
+
+        # Get products sold in last 30 days
+        if self.is_bibbi_mode:
+            fast_query = self.supabase.table("sales_unified")\
+                .select("product_ean,functional_name,quantity,sales_eur")\
+                .gte("sale_date", fast_date.isoformat())
+        else:
+            fast_query = self.supabase.table("sales_unified")\
+                .select("product_ean,functional_name,quantity,sales_eur,upload_batches!inner(uploader_user_id)")\
+                .eq("upload_batches.uploader_user_id", user_id)\
+                .gte("sale_date", fast_date.isoformat())
+
+        fast_result = fast_query.limit(100000).execute()
+
+        # Get products sold in last 90 days
+        if self.is_bibbi_mode:
+            slow_query = self.supabase.table("sales_unified")\
+                .select("product_ean,functional_name,quantity,sales_eur")\
+                .gte("sale_date", slow_date.isoformat())
+        else:
+            slow_query = self.supabase.table("sales_unified")\
+                .select("product_ean,functional_name,quantity,sales_eur,upload_batches!inner(uploader_user_id)")\
+                .eq("upload_batches.uploader_user_id", user_id)\
+                .gte("sale_date", slow_date.isoformat())
+
+        slow_result = slow_query.limit(100000).execute()
+
+        # Aggregate fast-moving products
+        fast_products = {}
+        if fast_result.data:
+            for r in fast_result.data:
+                ean = r.get('product_ean')
+                if not ean:
+                    continue
+                if ean not in fast_products:
+                    fast_products[ean] = {
+                        'product_ean': ean,
+                        'product_name': r.get('functional_name', 'Unknown'),
+                        'units_sold': 0,
+                        'revenue': 0
+                    }
+                fast_products[ean]['units_sold'] += int(r.get('quantity', 0) or 0)
+                fast_products[ean]['revenue'] += float(r.get('sales_eur', 0) or 0)
+
+        # Aggregate all products from 90 days
+        all_products = set()
+        if slow_result.data:
+            for r in slow_result.data:
+                ean = r.get('product_ean')
+                if ean:
+                    all_products.add(ean)
+
+        # Slow movers: sold in 90 days but NOT in 30 days
+        slow_movers = all_products - set(fast_products.keys())
+
+        return {
+            'fast_moving_count': len(fast_products),
+            'slow_moving_count': len(slow_movers),
+            'fast_moving_products': sorted(
+                fast_products.values(),
+                key=lambda x: x['units_sold'],
+                reverse=True
+            )[:10],  # Top 10 fast movers
+            'days_thresholds': {
+                'fast_days': fast_days,
+                'slow_days': slow_days
+            }
+        }

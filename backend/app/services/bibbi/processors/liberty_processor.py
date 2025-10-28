@@ -16,6 +16,7 @@ from datetime import datetime
 import openpyxl
 import re
 import hashlib
+from supabase import Client
 
 from .base import BibbiBseProcessor
 
@@ -41,15 +42,38 @@ class LibertyProcessor(BibbiBseProcessor):
     # Format: "Flagship" -> "Sales Qty Un", "Internet" -> "Sales Qty Un"
     # We need to detect which columns belong to which store dynamically
 
-    def __init__(self, reseller_id: str):
-        """Initialize Liberty processor with cached services for performance"""
+    def __init__(self, reseller_id: str, supabase_client: Client):
+        """Initialize Liberty processor with cached services and product lookup table"""
         super().__init__(reseller_id)
 
-        # Cache product service to avoid repeated initialization in transform_row loop
-        # Performance optimization: Saves 3-10 seconds per 1000 rows
-        from app.services.bibbi.product_service import get_product_service
-        from app.core.bibbi import get_bibbi_db
-        self._product_service = get_product_service(get_bibbi_db())
+        # Store Supabase client for product lookups
+        self.supabase = supabase_client
+
+        # Pre-load Liberty products into memory for fast lookups
+        # Query products table for all Liberty products
+        # Format: {liberty_name: {ean, functional_name}}
+        self.liberty_products = {}
+        try:
+            result = self.supabase.table("products")\
+                .select("liberty_name, ean, functional_name")\
+                .not_.is_("liberty_name", "null")\
+                .execute()
+
+            for product in result.data:
+                liberty_name = product.get('liberty_name')
+                if liberty_name:
+                    self.liberty_products[liberty_name] = {
+                        'ean': product['ean'],
+                        'functional_name': product['functional_name']
+                    }
+
+            print(f"[Liberty] Pre-loaded {len(self.liberty_products)} products from products table")
+        except Exception as e:
+            print(f"[Liberty] WARNING: Failed to pre-load products: {e}")
+            self.liberty_products = {}
+
+        # Track unmatched Liberty names for reporting
+        self.unmatched_liberty_names = []
 
     def get_vendor_name(self) -> str:
         return self.VENDOR_NAME
@@ -156,23 +180,31 @@ class LibertyProcessor(BibbiBseProcessor):
 
     def _parse_store_columns(self, sheet) -> Dict[str, Dict[str, int]]:
         """
-        Parse Liberty's multi-store column structure from rows 1-2
+        Parse Liberty's multi-store column structure from rows 1-3
+
+        Row 1: Store names (Flagship, Internet, etc.)
+        Row 2: Date range labels (Actual, YTD, etc.) - CRITICAL for filtering
+        Row 3: Column headers (Sales Qty Un, Sales Inc VAT £, etc.)
 
         Returns:
-            Dict mapping store identifier to column ranges
+            Dict mapping store identifier to column ranges for "Actual" columns only
             Example: {
                 "flagship": {"qty_col": 12, "sales_col": 13},
-                "online": {"qty_col": 14, "sales_col": 15}
+                "internet": {"qty_col": 14, "sales_col": 15}
             }
         """
         store_columns = {}
 
         # Row 1 has store names like "Flagship", "Internet"
+        # Row 2 has date range labels like "Actual", "YTD" - we ONLY want "Actual"
         # Row 3 has column headers like "Sales Qty Un", "Sales Inc VAT £ "
         row1 = list(sheet[1])
+        row2 = list(sheet[2])
         row3 = list(sheet[3])
 
         current_store = None
+        current_row2_label = ""  # Track most recent Row 2 value (handles merged cells)
+
         for idx, cell in enumerate(row1):
             if cell.value and str(cell.value).strip():
                 store_name = str(cell.value).strip()
@@ -191,14 +223,30 @@ class LibertyProcessor(BibbiBseProcessor):
                     store_columns[store_id] = {}
                     current_store = store_id
 
+            # Update current Row 2 label when we find a value
+            # This handles merged cells: when Row 2[idx] is None, we use the last seen label
+            if idx < len(row2) and row2[idx].value:
+                current_row2_label = str(row2[idx].value).strip().lower()
+
             # Find quantity and sales columns under this store
+            # CRITICAL FIX: Only map columns in "Actual" sections
+            # Use current_row2_label instead of checking current cell (handles merged cells)
             if current_store and idx < len(row3) and row3[idx].value:
+                # Skip this column if we're not in an "Actual" section
+                if 'actual' not in current_row2_label:
+                    continue
+
+                # Now check Row 3 header and map columns
                 header = str(row3[idx].value).strip()
 
                 if 'qty' in header.lower() or 'quantity' in header.lower():
-                    store_columns[current_store]['qty_col'] = idx
+                    # Only set if not already set (take first "Actual" occurrence)
+                    if 'qty_col' not in store_columns[current_store]:
+                        store_columns[current_store]['qty_col'] = idx
                 elif 'sales' in header.lower() and '£' in header:
-                    store_columns[current_store]['sales_col'] = idx
+                    # Only set if not already set (take first "Actual" occurrence)
+                    if 'sales_col' not in store_columns[current_store]:
+                        store_columns[current_store]['sales_col'] = idx
 
         print(f"[Liberty] Parsed store columns: {store_columns}")
         return store_columns
@@ -222,10 +270,10 @@ class LibertyProcessor(BibbiBseProcessor):
         # Parse store column structure
         store_columns = self._parse_store_columns(sheet)
 
-        # Extract date from filename pattern "Continuity Supplier Size Report DD_MM_YYYY.xlsx"
-        # Example: "27_04_2025.xlsx" -> datetime(2025, 4, 27)
+        # Extract date from filename pattern "Continuity Supplier Size Report DD-MM-YYYY.xlsx" or "DD_MM_YYYY.xlsx"
+        # Example: "28-09-2025.xlsx" or "27_04_2025.xlsx" -> datetime(2025, 9, 28)
         file_date = None
-        date_match = re.search(r'(\d{2})_(\d{2})_(\d{4})\.xlsx$', file_path, re.IGNORECASE)
+        date_match = re.search(r'(\d{2})[-_](\d{2})[-_](\d{4})\.xlsx$', file_path, re.IGNORECASE)
         if date_match:
             day, month, year = date_match.groups()
             try:
@@ -249,29 +297,31 @@ class LibertyProcessor(BibbiBseProcessor):
         print(f"[Liberty] Detected {len(store_columns)} stores with data")
 
         # Process data rows starting from row 4
-        # Liberty uses 2-row pattern: info row + data row
+        # Liberty uses 3-row pattern: description row + blank row + Liberty ID/data row
         rows = []
         all_rows = list(sheet.iter_rows(min_row=4, values_only=True))
 
         i = 0
         while i < len(all_rows):
-            info_row = all_rows[i]
+            description_row = all_rows[i]
 
             # Skip empty rows
-            if not any(info_row):
+            if not any(description_row):
                 i += 1
                 continue
 
-            # Check if this is a product info row (has EAN in column E)
-            ean_value = info_row[4] if len(info_row) > 4 else None  # Column E (0-indexed: 4)
+            # Check if this is a product description row (has text in column F)
+            description = description_row[5] if len(description_row) > 5 else None  # Column F (0-indexed: 5)
 
-            if ean_value and isinstance(ean_value, str) and '|' in ean_value and not ean_value.endswith('Total'):
-                # This is a product info row, next row should have sales data
-                product_name = info_row[5] if len(info_row) > 5 else None  # Column F
+            # Check if row i+2 exists and has Liberty identifier
+            if i + 2 < len(all_rows):
+                data_row = all_rows[i + 2]
+                liberty_name = data_row[5] if len(data_row) > 5 else None  # Column F (0-indexed: 5)
 
-                # Get the data row (next row)
-                if i + 1 < len(all_rows):
-                    data_row = all_rows[i + 1]
+                # Liberty identifier format: "000834429 | 98-NO COLOUR Total"
+                # Must have "|" and end with "Total"
+                if liberty_name and isinstance(liberty_name, str) and '|' in liberty_name and liberty_name.endswith('Total'):
+                    # This is a valid 3-row product pattern
 
                     # Create MULTIPLE records - one per store with data
                     for store_id, col_info in store_columns.items():
@@ -290,10 +340,10 @@ class LibertyProcessor(BibbiBseProcessor):
                         if not qty_value and not sales_value:
                             continue
 
-                        # Create a record for this store
+                        # Create a record for this store with Liberty identifier
                         store_row = {
-                            'Item ID | Colour': ean_value,
-                            'Item': product_name,
+                            'liberty_name': liberty_name,  # Liberty identifier for product lookup
+                            'Item': description,  # Keep description for reference
                             'Sales Qty Un': qty_value,
                             'Sales Inc VAT £ ': sales_value,
                             'store_identifier': store_id,  # Add store identifier
@@ -302,13 +352,13 @@ class LibertyProcessor(BibbiBseProcessor):
 
                         rows.append(store_row)
 
-                    # Skip both rows (info + data)
-                    i += 2
+                    # Skip all 3 rows (description + blank + data)
+                    i += 3
                 else:
-                    # No data row following, skip this info row
+                    # Not a valid 3-row pattern, skip this row
                     i += 1
             else:
-                # Not a product info row, skip
+                # Not enough rows left for 3-row pattern, skip
                 i += 1
 
         workbook.close()
@@ -324,99 +374,43 @@ class LibertyProcessor(BibbiBseProcessor):
         Transform Liberty row to sales_unified schema
 
         Handles:
-        1. EAN parsing from "Item ID | Colour" format (e.g., "000834429 | 98-NO COLOUR")
+        1. Liberty identifier lookup: "000834429 | 98-NO COLOUR Total" → products table
         2. Returns in parentheses: (123) → -123
         3. GBP → EUR conversion
         4. Store identification from column position
-        5. YTD (year-to-date) sales data extraction
+        5. Monthly "Actual" sales data extraction (not YTD)
 
         Liberty data structure:
-        - "Item ID | Colour" contains EAN
-        - "Item" contains product name
-        - YTD columns have sales data (we use YTD, not "Actual")
-        - Multiple store columns (Flagship YTD, Internet YTD, etc.)
+        - "liberty_name" contains Liberty identifier (e.g., "000834429 | 98-NO COLOUR Total")
+        - Lookup EAN and functional_name from products table
+        - "Actual" columns have monthly sales data
+        - Multiple store columns (Flagship, Internet, etc.)
         """
         # Start with base row
         transformed = self._create_base_row(batch_id)
 
-        # Extract product NAME from Liberty file for matching
-        # Liberty files have product names in "Item" column (Column F)
-        product_name = raw_row.get("Item")
-        product_name_str = str(product_name).strip() if product_name else None
+        # Extract Liberty identifier from raw_row
+        # Format: "000834429 | 98-NO COLOUR Total"
+        liberty_name = raw_row.get("liberty_name")
 
-        if not product_name_str:
-            raise ValueError("Missing product name in 'Item' column")
+        if not liberty_name:
+            # Skip row - no Liberty identifier found
+            return None
 
-        # Use product matcher to get BIBBI product data
-        # Match by Liberty product NAME against products.liberty_name column
-        # IMPORTANT: Use match_product() (Tier 1+2 only), NOT match_or_create_product()
-        # Liberty has TEXT names, not numeric codes - auto-create would generate wrong EANs
-        product_service = self._product_service
+        # Lookup product in pre-loaded products table
+        product = self.liberty_products.get(liberty_name)
 
-        # Try matching without auto-creation (returns None if no match)
-        # product_service will:
-        # 1. Try exact match on products.liberty_name
-        # 2. Try fuzzy match on product names
-        # 3. Return None if no match (we handle TEMP_ EAN creation manually)
-        product_match = product_service.match_product(
-            vendor_code=product_name_str,  # Use product NAME for matching
-            product_name=product_name_str,
-            vendor_name="liberty"
-        )
-
-        if product_match:
-            # Match found - extract EAN and functional_name
-            transformed["product_ean"] = product_match["ean"]
-            transformed["functional_name"] = product_match.get("functional_name")
-
-            # Fallback: if no functional_name from match, use Liberty product name
-            if not transformed["functional_name"]:
-                transformed["functional_name"] = product_name_str
-                print(f"[Liberty] Matched product but no functional_name, using Liberty name: {product_name_str}")
+        if product:
+            # Match found - use EAN and functional_name from products table
+            transformed["product_ean"] = product["ean"]
+            transformed["functional_name"] = product["functional_name"]
         else:
-            # No match found - create TEMP_ EAN manually
-            # This prevents product service from creating wrong EANs like "9000000000010"
-            print(f"[Liberty] No product match for '{product_name_str}', creating TEMP_ EAN")
+            # No match found - add to unmatched list and skip row
+            self.unmatched_liberty_names.append(liberty_name)
+            return None
 
-            # Generate deterministic temporary EAN with hash to prevent collisions
-            # Format: TEMP_LIBERTY_{product_name[:20]}_{hash[:8]}
-            # Hash is deterministic (same product name = same hash)
-            product_hash = hashlib.md5(
-                product_name_str.encode()
-            ).hexdigest()[:8]
-            temp_ean = f"TEMP_LIBERTY_{product_name_str[:20]}_{product_hash}"
-
-            transformed["product_ean"] = temp_ean
-            transformed["functional_name"] = product_name_str
-
-            # Create product record in products table for future matching
-            try:
-                from app.core.bibbi import get_bibbi_db
-                bibbi_db = get_bibbi_db()
-
-                product_data = {
-                    "ean": temp_ean,
-                    "functional_name": product_name_str[:50],
-                    "description": product_name_str,
-                    "liberty_name": product_name_str,  # For future exact matching
-                    "active": False,  # Mark inactive until real EAN assigned
-                    "created_at": datetime.utcnow().isoformat(),
-                    "updated_at": datetime.utcnow().isoformat()
-                }
-
-                # Insert into products table (bypass tenant filter - products has no tenant_id)
-                bibbi_db.client.table("products").insert(product_data).execute()
-                print(f"[Liberty] Created product record: {temp_ean} → '{product_name_str}'")
-
-            except Exception as e:
-                # Non-fatal - if duplicate or insert fails, continue with TEMP_ EAN
-                # Next upload will match on liberty_name column
-                if "duplicate" not in str(e).lower():
-                    print(f"[Liberty] Warning: Could not create product record for {temp_ean}: {e}")
-
-        # Store product name for reference
-        if product_name_str:
-            transformed["product_name_raw"] = product_name_str
+        # Store Liberty identifier for reference
+        transformed["product_name_raw"] = liberty_name
 
         # Extract quantity - Liberty has no single "quantity" column
         # Instead, quantity is in store-specific columns like "Sales Qty Un"
@@ -450,7 +444,6 @@ class LibertyProcessor(BibbiBseProcessor):
             # If quantity is negative (returns), mark as return
             if quantity < 0:
                 transformed["is_return"] = True
-                transformed["return_quantity"] = abs(quantity)
             else:
                 transformed["is_return"] = False
 
@@ -515,22 +508,41 @@ class LibertyProcessor(BibbiBseProcessor):
             transformed["city"] = "London"
             transformed["sales_channel"] = "retail"
 
-        # Ensure upload_batch_id is explicitly set
-        # BIBBI schema uses upload_batch_id (not batch_id or upload_id)
-        # The batch_id parameter passed to transform_row is actually the upload_batch_id
-        transformed["upload_batch_id"] = batch_id
+        # Set upload_id for FK to uploads table
+        # BIBBI schema uses upload_id (FK to uploads.id)
+        # The batch_id parameter passed to transform_row is the upload UUID
+        transformed["upload_id"] = batch_id
 
         return transformed
 
+    def process_file(self, file_path: str) -> 'ProcessingResult':
+        """Override base process_file to add unmatched Liberty names reporting"""
+        # Call parent process_file
+        result = super().process_file(file_path)
 
-def get_liberty_processor(reseller_id: str) -> LibertyProcessor:
+        # Print unmatched Liberty names report
+        if self.unmatched_liberty_names:
+            print(f"\n[Liberty] ========== UNMATCHED LIBERTY NAMES ==========")
+            print(f"[Liberty] Total unmatched: {len(self.unmatched_liberty_names)}")
+            print(f"[Liberty] Unique unmatched: {len(set(self.unmatched_liberty_names))}")
+            print(f"[Liberty] ")
+            print(f"[Liberty] Liberty names not found in products table:")
+            for liberty_name in sorted(set(self.unmatched_liberty_names)):
+                print(f"[Liberty]   - {liberty_name}")
+            print(f"[Liberty] ==============================================\n")
+
+        return result
+
+
+def get_liberty_processor(reseller_id: str, supabase_client: 'Client') -> LibertyProcessor:
     """
     Factory function to create Liberty processor
 
     Args:
         reseller_id: UUID of Liberty reseller from resellers table
+        supabase_client: Supabase client for product lookups
 
     Returns:
         LibertyProcessor instance
     """
-    return LibertyProcessor(reseller_id)
+    return LibertyProcessor(reseller_id, supabase_client)
