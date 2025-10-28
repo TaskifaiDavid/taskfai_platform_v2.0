@@ -94,38 +94,91 @@ async def register(
 async def login(
     credentials: UserLogin,
     request: Request,
-    supabase: SupabaseClient
+    supabase: SupabaseClient  # Kept for backward compatibility, but not used for auth
 ):
     """
     Authenticate user and return JWT token (or temp token if MFA required)
 
-    Flow:
-    1. Validate email/password
-    2. If MFA enabled → return temp token + requires_mfa flag
-    3. If MFA disabled → return full access token (standard flow)
+    Multi-Tenant Flow:
+    1. Query Tenant Registry database for user (central authentication)
+    2. Validate email/password
+    3. Verify user has access to requested tenant (via user_tenants table)
+    4. If MFA enabled → return temp token + requires_mfa flag
+    5. If MFA disabled → return full access token (standard flow)
 
     - **email**: Registered email address
     - **password**: User password
     """
-    # Step 1: Fetch user by email
-    response = supabase.table("users").select("*").eq("email", credentials.email).execute()
+    from supabase import create_client
+    from app.core.config import settings
 
-    if not response.data:
+    # Step 1: Connect to Tenant Registry database for central authentication
+    registry_client = create_client(
+        settings.get_tenant_registry_url(),
+        settings.get_tenant_registry_service_key()
+    )
+
+    # Step 2: Get tenant context (set by TenantContextMiddleware)
+    tenant = request.state.tenant
+
+    # Step 2.5: Map tenant subdomain to UUID (Tenant Registry uses UUIDs, app uses subdomains)
+    # For "bibbi" and "demo", we need to lookup the UUID from tenants table
+    print(f"[Auth] Looking up tenant UUID for subdomain: {tenant.subdomain}")
+    tenant_uuid_response = registry_client.table("tenants")\
+        .select("tenant_id")\
+        .eq("subdomain", tenant.subdomain)\
+        .execute()
+
+    if not tenant_uuid_response.data:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Tenant '{tenant.subdomain}' not found in registry"
+        )
+
+    tenant_uuid = tenant_uuid_response.data[0]["tenant_id"]
+    print(f"[Auth] Tenant UUID: {tenant_uuid}")
+
+    # Step 3: Fetch user from user_tenants table (centralized auth)
+    # This query validates BOTH credentials AND tenant access in one step
+    print(f"[Auth] Querying Tenant Registry for user: {credentials.email}")
+    user_tenant_response = registry_client.table("user_tenants")\
+        .select("*")\
+        .eq("email", credentials.email.lower())\
+        .eq("tenant_id", tenant_uuid)\
+        .execute()
+
+    if not user_tenant_response.data:
+        print(f"[Auth] ✗ User {credentials.email} not found or no access to tenant: {tenant.tenant_id}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password"
         )
 
-    user = response.data[0]
+    user_tenant = user_tenant_response.data[0]
+    print(f"[Auth] ✓ User found: {user_tenant['email']}")
 
-    # Step 2: Verify password
-    if not verify_password(credentials.password, user["hashed_password"]):
+    # Step 4: Verify password
+    if not user_tenant.get("hashed_password"):
+        print(f"[Auth] ✗ No password set for user: {credentials.email}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password"
         )
 
-    # Step 3: Check if MFA enabled
+    if not verify_password(credentials.password, user_tenant["hashed_password"]):
+        print(f"[Auth] ✗ Password verification failed for: {credentials.email}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password"
+        )
+
+    print(f"[Auth] ✓ Password verified for: {credentials.email}")
+
+    # Step 5: Extract user role
+    user_role = user_tenant.get("role", "analyst")
+    print(f"[Auth] ✓ User has access to tenant {tenant.tenant_id} with role: {user_role}")
+
+    # Step 5: Check if MFA enabled
     # TEMPORARILY DISABLED: MFA check commented out for troubleshooting
     # if user.get("mfa_enabled"):
     #     # MFA required - return temporary token for MFA verification
@@ -144,21 +197,26 @@ async def login(
     #         "message": "Please enter your 6-digit authentication code"
     #     }
 
-    # Step 4: No MFA - standard login flow (always used with MFA disabled)
-    tenant = request.state.tenant
-
+    # Step 6: No MFA - standard login flow (always used with MFA disabled)
+    # Use role from user_tenants table (tenant-specific role), not user table
     access_token = create_access_token(
         data={
-            "sub": user["user_id"],
-            "email": user["email"],
-            "role": user["role"]
+            "sub": user_tenant["user_id"],
+            "email": user_tenant["email"],
+            "role": user_role  # Tenant-specific role from user_tenants table
         },
         tenant_id=tenant.tenant_id,
         subdomain=tenant.subdomain
     )
 
+    print(f"[Auth] ✅ Login successful for {credentials.email} as {user_role} in tenant {tenant.tenant_id}")
+
+    # Build user response with tenant-specific role
+    user_response_data = dict(user_tenant)
+    user_response_data["role"] = user_role  # Override with tenant-specific role
+
     return AuthResponse(
-        user=UserResponse(**user),
+        user=UserResponse(**user_response_data),
         access_token=access_token
     )
 
