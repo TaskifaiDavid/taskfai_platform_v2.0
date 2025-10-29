@@ -38,6 +38,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
         "/openapi.json",
         # Diagnostic endpoint
         "/api/debug/tenant",
+        # Multi-tenant backend discovery (must be public - called before authentication)
+        "/api/discover-backend",
         # Auth endpoints - with /api prefix (local dev)
         "/api/auth/login",
         "/api/auth/register",
