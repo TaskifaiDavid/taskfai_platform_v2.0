@@ -70,9 +70,12 @@ async def upload_file(
         # Extract from current user's tenant context if available
         tenant_id = current_user.get("tenant_id", "demo")
 
+    # Get subdomain for table selection (subdomain is string like "bibbi", tenant_id is UUID)
+    subdomain = current_user.get("subdomain", "demo")
+
     # Create upload record (table structure differs by tenant)
     try:
-        if tenant_id == "bibbi":
+        if subdomain == "bibbi":
             # BIBBI uses 'uploads' table with different column names
             batch_data = {
                 "id": batch_id,  # BIBBI uses 'id' not 'upload_batch_id'
@@ -156,9 +159,12 @@ async def get_upload_batches(
     user_id = current_user["user_id"]
     tenant_id = current_user.get("tenant_id", "demo")
 
+    # Get subdomain for table selection (subdomain is string like "bibbi", tenant_id is UUID)
+    subdomain = current_user.get("subdomain", "demo")
+
     try:
         # Use correct table and column names per tenant
-        if tenant_id == "bibbi":
+        if subdomain == "bibbi":
             query = supabase.table("uploads").select("*").eq("user_id", user_id)
             status_col = "status"
             timestamp_col = "uploaded_at"
@@ -178,7 +184,7 @@ async def get_upload_batches(
         transformed_batches = []
         for batch in result.data:
             # Handle different table structures for BIBBI vs demo
-            if tenant_id == "bibbi":
+            if subdomain == "bibbi":
                 # BIBBI uploads table structure
                 transformed = {
                     'upload_batch_id': batch.get('id'),  # BIBBI uses 'id'
@@ -244,9 +250,12 @@ async def get_upload_batch(
     user_id = current_user["user_id"]
     tenant_id = current_user.get("tenant_id", "demo")
 
+    # Get subdomain for table selection (subdomain is string like "bibbi", tenant_id is UUID)
+    subdomain = current_user.get("subdomain", "demo")
+
     try:
         # Use correct table and column names per tenant
-        if tenant_id == "bibbi":
+        if subdomain == "bibbi":
             result = supabase.table("uploads").select("*").eq("id", batch_id).eq("user_id", user_id).execute()
         else:
             result = supabase.table("upload_batches").select("*").eq("upload_batch_id", batch_id).eq("uploader_user_id", user_id).execute()
@@ -258,7 +267,7 @@ async def get_upload_batch(
         batch_data = result.data[0]
 
         # Handle different table structures for BIBBI vs demo
-        if tenant_id == "bibbi":
+        if subdomain == "bibbi":
             # BIBBI uploads table structure
             transformed_batch = {
                 'upload_batch_id': batch_data.get('id'),
