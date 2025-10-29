@@ -124,10 +124,10 @@ class TenantContextManager:
             if not tenant.is_active:
                 raise ValueError(f"Tenant '{subdomain}' is suspended")
 
-            # Parse decrypted credentials from tenant.encrypted_credentials
+            # Parse decrypted credentials from tenant.database_credentials
             import json
             try:
-                credentials = json.loads(tenant.encrypted_credentials)
+                credentials = json.loads(tenant.database_credentials)
             except (json.JSONDecodeError, TypeError):
                 raise ValueError(f"Invalid credentials format for tenant: {subdomain}")
 
