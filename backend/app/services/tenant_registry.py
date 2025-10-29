@@ -40,6 +40,10 @@ class TenantRegistryService:
         self.client = registry_client
         self.encryption_key = settings.secret_key[:32]  # Use first 32 chars as encryption key
 
+        # DEBUG: Log encryption key to diagnose error 39000
+        print(f"[TenantRegistryService] SECRET_KEY length: {len(settings.secret_key)}")
+        print(f"[TenantRegistryService] Encryption key (first 32 chars): '{self.encryption_key}'")
+
     def create_tenant(
         self,
         tenant_data: TenantCreate
@@ -144,6 +148,11 @@ class TenantRegistryService:
         Returns:
             Complete tenant with credentials or None if not found
         """
+        # DEBUG: Log RPC call parameters
+        print(f"[TenantRegistryService] Calling get_tenant_with_credentials")
+        print(f"[TenantRegistryService]   subdomain: '{subdomain.lower()}'")
+        print(f"[TenantRegistryService]   encryption_key: '{self.encryption_key}'")
+
         # Use RPC function to decrypt credentials
         result = self.client.rpc(
             'get_tenant_with_credentials',
