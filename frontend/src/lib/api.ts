@@ -70,12 +70,12 @@ class APIClient {
   private async discoverBackend(): Promise<string> {
     // Return cached URL if already discovered
     if (this.backendUrl) {
-      return this.backendUrl
+      return this.backendUrl as string
     }
 
     // Return in-progress discovery to avoid duplicate calls
     if (this.discoveryInProgress) {
-      return this.discoveryInProgress
+      return this.discoveryInProgress as Promise<string>
     }
 
     // Start discovery process
@@ -110,11 +110,11 @@ class APIClient {
         this.backendUrl = data.backend_url
 
         // Update axios client baseURL
-        this.client.defaults.baseURL = this.backendUrl
+        this.client.defaults.baseURL = this.backendUrl as string
 
         console.log(`[API] Discovered backend for ${subdomain}:`, this.backendUrl)
 
-        return this.backendUrl
+        return this.backendUrl as string
       } catch (error) {
         console.error('[API] Backend discovery error:', error)
         // Fallback to registry URL
@@ -126,7 +126,7 @@ class APIClient {
       }
     })()
 
-    return this.discoveryInProgress
+    return this.discoveryInProgress as Promise<string>
   }
 
   public getClient(): AxiosInstance {
