@@ -52,6 +52,7 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
             "/health",  # Health check endpoint (App Platform & Docker)
             "/",  # Root endpoint
             "/api/debug/tenant",  # Debug endpoint for troubleshooting tenant context
+            "/api/discover-backend",  # Backend discovery (must skip - called to determine tenant)
         ]
         if request.url.path in skip_paths:
             return await call_next(request)
