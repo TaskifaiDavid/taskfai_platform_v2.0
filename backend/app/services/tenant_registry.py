@@ -168,14 +168,15 @@ class TenantRegistryService:
         tenant = result.data[0] if isinstance(result.data, list) else result.data
 
         return Tenant(
-            tenant_id=UUID(tenant['tenant_id']),
+            tenant_id=str(tenant['tenant_id']),
             subdomain=tenant['subdomain'],
             company_name=tenant['company_name'],
             database_url=tenant['database_url'],
-            encrypted_credentials=tenant['decrypted_credentials'],  # Already decrypted by RPC
+            database_credentials=tenant['decrypted_credentials'],  # Already decrypted by RPC
             is_active=tenant['is_active'],
             created_at=datetime.fromisoformat(tenant['created_at']),
-            updated_at=datetime.fromisoformat(tenant['updated_at']) if tenant.get('updated_at') else None
+            updated_at=datetime.fromisoformat(tenant['updated_at']) if tenant.get('updated_at') else None,
+            access_url=f"https://{tenant['subdomain']}.taskifai.com"
         )
 
     def list_tenants(
