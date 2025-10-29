@@ -181,8 +181,11 @@ class TenantContextManager:
             return "demo"  # Use demo for local development
 
         # Handle DigitalOcean App Platform URLs (*.ondigitalocean.app)
-        # These are direct backend URLs and should always use demo context
+        # Extract tenant from app name (e.g., taskifai-bibbi-xyz → bibbi)
         if "ondigitalocean.app" in hostname:
+            # Format: taskifai-{tenant}-{hash}.ondigitalocean.app
+            if "bibbi" in hostname:
+                return "bibbi"
             return "demo"
 
         # Split hostname
