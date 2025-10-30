@@ -121,7 +121,7 @@ async def upload_file(
         file_content_b64=file_content_b64,
         filename=file.filename,
         reseller_id=reseller_id,
-        tenant_id=tenant_id
+        tenant_id=subdomain  # Pass subdomain string instead of UUID tenant_id
     )
 
     return {
