@@ -7,8 +7,9 @@ from uuid import UUID
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from supabase import Client
 
-from app.core.dependencies import get_current_user, get_tenant_context, CurrentTenant
+from app.core.dependencies import get_current_user, get_tenant_context, get_supabase_client, CurrentTenant
 from app.core.config import settings
 from app.models.user import UserResponse
 from app.models.conversation import (
@@ -30,28 +31,21 @@ router = APIRouter(prefix="/chat", tags=["AI Chat"])
 SUPABASE_PROJECT_ID = "afualzsndhnbsuruwese"
 
 
-async def execute_sql_via_mcp(project_id: str, query: str) -> list:
+async def execute_sql_via_mcp(project_id: str, query: str, supabase_client) -> list:
     """
     Execute SQL query via Supabase REST API (using exec_sql RPC function)
 
     Args:
         project_id: Supabase project ID (unused, kept for compatibility)
         query: SQL SELECT query to execute
+        supabase_client: Tenant-routed Supabase client from dependencies
 
     Returns:
         Query results as list of dictionaries
     """
-    from supabase import create_client
-
     try:
-        # Create Supabase client (uses HTTPS with IPv4)
-        supabase = create_client(
-            settings.supabase_url,
-            settings.supabase_service_key
-        )
-
-        # Execute query via the exec_sql RPC function we created
-        result = supabase.rpc('exec_sql', {'query': query}).execute()
+        # Execute query via the exec_sql RPC function using tenant-routed client
+        result = supabase_client.rpc('exec_sql', {'query': query}).execute()
 
         # Return the data (already in list format from jsonb_agg)
         return result.data if result.data else []
@@ -63,7 +57,8 @@ async def execute_sql_via_mcp(project_id: str, query: str) -> list:
 async def query_chat(
     request: ChatQueryRequest,
     current_user: Annotated[UserResponse, Depends(get_current_user)],
-    tenant_context: CurrentTenant
+    tenant_context: CurrentTenant,
+    supabase: Annotated[Client, Depends(get_supabase_client)]
 ):
     """
     Send natural language query to AI chat agent
@@ -74,26 +69,31 @@ async def query_chat(
     The agent will:
     1. Detect query intent
     2. Generate secure SQL query using OpenAI
-    3. Execute query via Supabase MCP (REST API)
+    3. Execute query via tenant-routed Supabase client
     4. Return results in natural language
     """
     try:
-        # Initialize hybrid SQL agent
+        # Initialize hybrid SQL agent with tenant context
         agent = SQLDatabaseAgent(
             project_id=SUPABASE_PROJECT_ID,
             openai_api_key=settings.openai_api_key,
-            model=settings.openai_model
+            model=settings.openai_model,
+            tenant_subdomain=tenant_context.subdomain
         )
 
         # Detect intent
         intent_detector = IntentDetector()
         intent = intent_detector.detect_intent(request.query)
 
-        # Process query with agent (uses Supabase MCP for execution)
+        # Create closure to pass supabase client to execute function
+        async def execute_sql_with_client(project_id: str, query: str) -> list:
+            return await execute_sql_via_mcp(project_id, query, supabase)
+
+        # Process query with agent (uses tenant-routed Supabase client)
         result = await agent.process_query(
             query=request.query,
             user_id=str(current_user["user_id"]),
-            mcp_execute_sql_fn=execute_sql_via_mcp,
+            mcp_execute_sql_fn=execute_sql_with_client,
             session_id=request.session_id,
             intent=intent
         )
