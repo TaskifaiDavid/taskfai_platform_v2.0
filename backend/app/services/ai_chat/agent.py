@@ -25,8 +25,8 @@ from .intent import IntentDetector, QueryIntent
 from .security import QuerySecurityValidator
 
 
-# Database schema for AI context
-DATABASE_SCHEMA = """
+# Database schema for AI context - DEMO tenant
+DATABASE_SCHEMA_DEMO = """
 Tables (in priority order for queries):
 
 1. ecommerce_orders: PRIMARY sales table (D2C/online sales data) - QUERY THIS FIRST
@@ -50,6 +50,30 @@ Tables (in priority order for queries):
    Columns: user_id, email, full_name, role, tenant_id
 """
 
+# Database schema for AI context - BIBBI tenant
+DATABASE_SCHEMA_BIBBI = """
+Tables (in priority order for queries):
+
+1. sales_unified: PRIMARY sales table (all reseller sales data) - QUERY THIS FIRST
+   Columns: sale_id, user_id, reseller_id, product_id, functional_name, product_ean,
+            product_name, quantity, sales_eur, cost_eur, month, year, store_name,
+            store_country, created_at, updated_at
+   Note: Unified table combining all reseller sales data with full product details
+
+2. stores: Store/location directory
+   Columns: store_id, reseller_id, store_name, city, country, created_at
+
+3. product_reseller_mappings: Product-to-reseller mappings
+   Columns: mapping_id, reseller_id, product_ean, product_name, functional_name,
+            reseller_sku, created_at
+
+4. sales_staging: Temporary upload staging (do not query)
+   Note: Internal table for upload processing
+
+5. users: User accounts
+   Columns: user_id, email, full_name, role, tenant_id
+"""
+
 
 class SQLDatabaseAgent:
     """
@@ -68,7 +92,8 @@ class SQLDatabaseAgent:
         project_id: str,
         openai_api_key: Optional[str] = None,
         model: str = "gpt-4o-mini",
-        temperature: float = 0.0
+        temperature: float = 0.0,
+        tenant_subdomain: str = "demo"
     ):
         """
         Initialize Hybrid SQL Agent
@@ -78,12 +103,17 @@ class SQLDatabaseAgent:
             openai_api_key: OpenAI API key
             model: OpenAI model name
             temperature: LLM temperature
+            tenant_subdomain: Tenant subdomain for schema selection (demo, bibbi, etc.)
         """
         self.project_id = project_id
+        self.tenant_subdomain = tenant_subdomain
         self.api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
 
         if not self.api_key:
             raise ValueError("OpenAI API key required")
+
+        # Select database schema based on tenant
+        self.database_schema = DATABASE_SCHEMA_BIBBI if tenant_subdomain == "bibbi" else DATABASE_SCHEMA_DEMO
 
         # Initialize LLM
         self.llm = ChatOpenAI(
@@ -99,30 +129,27 @@ class SQLDatabaseAgent:
     def _generate_sql(self, query: str, user_id: str) -> str:
         """Generate SQL from natural language using OpenAI"""
 
+        # Use tenant-specific database schema
         system_prompt = f"""You are a SQL expert for a sales analytics platform.
 
-{DATABASE_SCHEMA}
+{self.database_schema}
 
 CRITICAL RULES:
-1. ALWAYS filter by user_id='{user_id}' in WHERE clause for sellout_entries2 and ecommerce_orders
-2. QUERY ecommerce_orders FIRST - it's the PRIMARY sales table with most user data
-3. ecommerce_orders has functional_name built-in - NO JOIN to products table needed
-4. Only query sellout_entries2 if user explicitly asks for "B2B", "offline", or "reseller" data
-5. Use ONLY SELECT queries - NO INSERT, UPDATE, DELETE, DROP, ALTER, CREATE
-6. For time queries:
-   - ecommerce_orders: Use order_date column (PREFERRED)
-   - sellout_entries2: Use month/year columns
-7. Aggregate for totals, averages, summaries
-8. Use LIMIT (max 1000 rows)
-9. Handle NULL values with COALESCE
+1. ALWAYS filter by user_id='{user_id}' in WHERE clause for all sales tables
+2. QUERY THE PRIMARY SALES TABLE FIRST (check schema above for correct table name)
+3. Use ONLY SELECT queries - NO INSERT, UPDATE, DELETE, DROP, ALTER, CREATE
+4. For time queries: Use appropriate date/month/year columns from schema
+5. Aggregate for totals, averages, summaries
+6. Use LIMIT (max 1000 rows)
+7. Handle NULL values with COALESCE
 
 Query Best Practices:
-- For general sales questions: Use ecommerce_orders
-- For product names: Use functional_name from ecommerce_orders (no join needed)
+- For general sales questions: Use the primary sales table from schema
+- Product names and details: Use columns available in primary table (check schema)
 - Meaningful column aliases
 - Logical ORDER BY (DESC for top results)
 - GROUP BY appropriate dimensions
-- Clear monetary formatting
+- Clear monetary formatting (sales_eur, cost_eur, etc.)
 
 Return ONLY the SQL query, nothing else."""
 
