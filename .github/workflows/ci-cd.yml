@@ -266,7 +266,20 @@ jobs:
         working-directory: ./backend
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/taskifai_test
+          REDIS_URL: redis://localhost:6379/0
           SECRET_KEY: test_secret_key_for_ci_only
+          ENVIRONMENT: test
+          # Supabase test credentials
+          SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL || 'https://test.supabase.co' }}
+          SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY || 'test_anon_key' }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_KEY || 'test_service_key' }}
+          # Tenant Registry test credentials
+          TENANT_REGISTRY_URL: ${{ secrets.TENANT_REGISTRY_URL || 'https://test-registry.supabase.co' }}
+          TENANT_REGISTRY_ANON_KEY: ${{ secrets.TENANT_REGISTRY_ANON_KEY || 'test_registry_anon' }}
+          TENANT_REGISTRY_SERVICE_KEY: ${{ secrets.TENANT_REGISTRY_SERVICE_KEY || 'test_registry_service' }}
+          # Optional keys
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || 'sk-test-key' }}
+          SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY || 'test_sendgrid_key' }}
         run: |
           pytest tests/performance/ -v -m performance --tb=short
 

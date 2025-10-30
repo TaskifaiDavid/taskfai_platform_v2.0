@@ -329,22 +329,34 @@ async def get_upload_errors(
         List of error reports
     """
     user_id = current_user["user_id"]
+    subdomain = current_user.get("subdomain", "demo")
 
     try:
-        # Verify batch belongs to user
-        batch_result = supabase.table("upload_batches").select("upload_batch_id").eq("upload_batch_id", batch_id).eq("uploader_user_id", user_id).execute()
+        # Verify batch belongs to user - use correct table per tenant
+        if subdomain == "bibbi":
+            batch_result = supabase.table("uploads").select("id").eq("id", batch_id).eq("user_id", user_id).execute()
+        else:
+            batch_result = supabase.table("upload_batches").select("upload_batch_id").eq("upload_batch_id", batch_id).eq("uploader_user_id", user_id).execute()
 
         if not batch_result.data:
             raise HTTPException(status_code=404, detail="Batch not found")
 
-        # Get error reports
-        errors_result = supabase.table("error_reports").select("*").eq("upload_batch_id", batch_id).order("row_number_in_file").execute()
-
-        return {
-            "success": True,
-            "errors": errors_result.data or [],
-            "count": len(errors_result.data) if errors_result.data else 0
-        }
+        # Get error reports - BIBBI may not have error_reports table yet
+        if subdomain == "bibbi":
+            # Return empty errors for BIBBI until error_reports table is created
+            return {
+                "success": True,
+                "errors": [],
+                "count": 0,
+                "message": "Error reporting not yet implemented for BIBBI"
+            }
+        else:
+            errors_result = supabase.table("error_reports").select("*").eq("upload_batch_id", batch_id).order("row_number_in_file").execute()
+            return {
+                "success": True,
+                "errors": errors_result.data or [],
+                "count": len(errors_result.data) if errors_result.data else 0
+            }
 
     except HTTPException:
         raise
@@ -370,10 +382,14 @@ async def delete_upload_batch(
         Deletion confirmation
     """
     user_id = current_user["user_id"]
+    subdomain = current_user.get("subdomain", "demo")
 
     try:
-        # Delete from database
-        result = supabase.table("upload_batches").delete().eq("upload_batch_id", batch_id).eq("uploader_user_id", user_id).execute()
+        # Delete from database - use correct table per tenant
+        if subdomain == "bibbi":
+            result = supabase.table("uploads").delete().eq("id", batch_id).eq("user_id", user_id).execute()
+        else:
+            result = supabase.table("upload_batches").delete().eq("upload_batch_id", batch_id).eq("uploader_user_id", user_id).execute()
 
         if not result.data:
             raise HTTPException(status_code=404, detail="Batch not found")
@@ -408,6 +424,7 @@ async def cleanup_stuck_uploads(
         Number of uploads cleaned up
     """
     user_id = current_user["user_id"]
+    subdomain = current_user.get("subdomain", "demo")
 
     try:
         from datetime import datetime, timedelta
@@ -415,12 +432,25 @@ async def cleanup_stuck_uploads(
         # Calculate cutoff time (10 minutes ago)
         cutoff_time = datetime.now() - timedelta(minutes=10)
 
-        # Get all pending uploads for this user
-        result = supabase.table("upload_batches")\
-            .select("*")\
-            .eq("uploader_user_id", user_id)\
-            .eq("processing_status", "pending")\
-            .execute()
+        # Get all pending uploads for this user - use correct table per tenant
+        if subdomain == "bibbi":
+            result = supabase.table("uploads")\
+                .select("*")\
+                .eq("user_id", user_id)\
+                .eq("status", "pending")\
+                .execute()
+
+            id_field = "id"
+            timestamp_field = "uploaded_at"
+        else:
+            result = supabase.table("upload_batches")\
+                .select("*")\
+                .eq("uploader_user_id", user_id)\
+                .eq("processing_status", "pending")\
+                .execute()
+
+            id_field = "upload_batch_id"
+            timestamp_field = "upload_timestamp"
 
         if not result.data:
             return {
@@ -432,18 +462,25 @@ async def cleanup_stuck_uploads(
         # Filter for stuck uploads (older than cutoff)
         stuck_batches = []
         for batch in result.data:
-            upload_time = datetime.fromisoformat(batch['upload_timestamp'].replace('Z', '+00:00'))
+            upload_time = datetime.fromisoformat(batch[timestamp_field].replace('Z', '+00:00'))
             if upload_time.replace(tzinfo=None) < cutoff_time:
-                stuck_batches.append(batch['upload_batch_id'])
+                stuck_batches.append(batch[id_field])
 
         # Update all stuck batches to failed status
         cleaned_count = 0
         for batch_id in stuck_batches:
-            update_result = supabase.table("upload_batches").update({
-                "processing_status": "failed",
-                "error_summary": "Processing timeout - marked as failed during cleanup",
-                "processing_completed_at": datetime.now().isoformat()
-            }).eq("upload_batch_id", batch_id).execute()
+            if subdomain == "bibbi":
+                update_result = supabase.table("uploads").update({
+                    "status": "failed",
+                    "error_message": "Processing timeout - marked as failed during cleanup",
+                    "processed_at": datetime.now().isoformat()
+                }).eq("id", batch_id).execute()
+            else:
+                update_result = supabase.table("upload_batches").update({
+                    "processing_status": "failed",
+                    "error_summary": "Processing timeout - marked as failed during cleanup",
+                    "processing_completed_at": datetime.now().isoformat()
+                }).eq("upload_batch_id", batch_id).execute()
 
             if update_result.data:
                 cleaned_count += 1
