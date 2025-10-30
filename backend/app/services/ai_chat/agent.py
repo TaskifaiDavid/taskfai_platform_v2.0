@@ -25,53 +25,74 @@ from .intent import IntentDetector, QueryIntent
 from .security import QuerySecurityValidator
 
 
-# Database schema for AI context - DEMO tenant
-DATABASE_SCHEMA_DEMO = """
-Tables (in priority order for queries):
+# Universal database schema for AI context - Works across all tenants
+DATABASE_SCHEMA_UNIVERSAL = """
+Your database contains sales/order transaction data. The exact table names and columns
+may vary by tenant, but follow these common patterns:
 
-1. ecommerce_orders: PRIMARY sales table (D2C/online sales data) - QUERY THIS FIRST
-   Columns: order_id, user_id, product_ean, functional_name, product_name, sales_eur,
-            quantity, cost_of_goods, stripe_fee, order_date, country, city,
-            utm_source, utm_medium, utm_campaign, device_type, reseller
-   Note: Contains functional_name directly - NO JOIN to products table needed
+PRIMARY SALES TABLE (Query this first - table name varies by tenant):
+- B2C tenants: ecommerce_orders, orders
+- B2B tenants: sales_unified, sales
 
-2. sellout_entries2: B2B/offline sales data (may be empty for some users)
-   Columns: sale_id, user_id, product_id, reseller_id, functional_name, product_ean,
-            reseller, sales_eur, quantity, currency, month, year, created_at
-   Note: Requires JOIN to products table for product_name
+Common transaction columns (most will exist):
+- Transaction ID: order_id, sale_id, transaction_id, id
+- Product identifier: product_ean (EAN-13 barcode), product_id, sku
+- Product name: functional_name (human-readable, ALWAYS use for display)
+- Revenue: sales_eur (always in EUR for reporting)
+- Quantity: quantity, units_sold (INTEGER, can be negative for returns)
+- Date: order_date, sale_date, transaction_date (DATE type)
+- Geography: country, city, region (TEXT, denormalized in fact table)
+- Time dimensions: year, month, quarter (INTEGER, extracted from date)
 
-3. products: Product catalog (only needed for sellout_entries2 queries)
-   Columns: product_id, sku, product_name, product_ean, functional_name, category
+Security filtering columns (one of these WILL exist):
+- user_id: Filter by this in WHERE clause (B2C/multi-user tenants)
+- tenant_id: Filter by subdomain value (B2B/multi-tenant systems)
 
-4. resellers: Reseller directory
-   Columns: reseller_id, name, country
+Optional B2B-specific columns (check if present before using):
+- reseller_id: UUID pointing to resellers lookup table
+- store_id: UUID pointing to stores lookup table
+- sales_channel: TEXT ('online', 'retail', 'B2B', 'B2C')
+- customer_id: UUID for end customer in B2B sales
+- store_identifier: TEXT (original store code from upload file)
 
-5. users: User accounts
-   Columns: user_id, email, full_name, role, tenant_id
-"""
+Optional financial columns (may not exist):
+- cost_eur, cost_of_goods: Product cost for margin calculations
+- stripe_fee, payment_fees: Transaction processing fees
+- sales_local_currency, local_currency: Original currency amounts
 
-# Database schema for AI context - BIBBI tenant
-DATABASE_SCHEMA_BIBBI = """
-Tables (in priority order for queries):
+Optional marketing columns (may not exist):
+- utm_source, utm_medium, utm_campaign: Marketing attribution
+- device_type: Desktop, mobile, tablet
 
-1. sales_unified: PRIMARY sales table (all reseller sales data) - QUERY THIS FIRST
-   Columns: sale_id, user_id, reseller_id, product_id, functional_name, product_ean,
-            product_name, quantity, sales_eur, cost_eur, month, year, store_name,
-            store_country, created_at, updated_at
-   Note: Unified table combining all reseller sales data with full product details
+LOOKUP TABLES (only query if needed for human-readable names):
 
-2. stores: Store/location directory
-   Columns: store_id, reseller_id, store_name, city, country, created_at
+1. resellers (B2B tenants only - join when query mentions reseller names):
+   Columns: reseller_id (UUID), name (TEXT), country (TEXT)
+   JOIN pattern: JOIN resellers r ON main_table.reseller_id = r.reseller_id
+   Use when: Query asks "what are Liberty's sales" or "which reseller performs best"
+   Shows: Human-readable reseller names instead of UUIDs
 
-3. product_reseller_mappings: Product-to-reseller mappings
-   Columns: mapping_id, reseller_id, product_ean, product_name, functional_name,
-            reseller_sku, created_at
+2. stores (B2B tenants only - join when query mentions store names):
+   Columns: store_id (UUID), reseller_id (UUID), store_name (TEXT),
+            store_type (TEXT), country (TEXT), city (TEXT)
+   JOIN pattern: JOIN stores s ON main_table.store_id = s.store_id
+   Use when: Query asks "flagship store performance" or "which store sold most"
+   Shows: Human-readable store names instead of UUIDs
 
-4. sales_staging: Temporary upload staging (do not query)
-   Note: Internal table for upload processing
+3. product_reseller_mappings (rare - only for vendor code lookups):
+   Columns: reseller_product_code, product_ean, product_name
+   Use when: Need to map vendor-specific product codes to EANs
 
-5. users: User accounts
-   Columns: user_id, email, full_name, role, tenant_id
+CRITICAL QUERY STRATEGY:
+1. Start with PRIMARY sales table (ecommerce_orders OR sales_unified)
+2. Use denormalized columns when available (functional_name, country, city)
+   - Product names: Use functional_name directly - NO JOIN needed
+   - Geography: Use country, city directly - NO JOIN needed
+3. Only JOIN lookup tables when:
+   - Query specifically mentions reseller/store names OR
+   - Need to display human-readable names instead of UUIDs
+4. Handle missing columns gracefully - if column doesn't exist, adapt without it
+5. Always filter by user_id OR tenant_id for security isolation
 """
 
 
@@ -112,8 +133,8 @@ class SQLDatabaseAgent:
         if not self.api_key:
             raise ValueError("OpenAI API key required")
 
-        # Select database schema based on tenant
-        self.database_schema = DATABASE_SCHEMA_BIBBI if tenant_subdomain == "bibbi" else DATABASE_SCHEMA_DEMO
+        # Use universal schema for all tenants
+        self.database_schema = DATABASE_SCHEMA_UNIVERSAL
 
         # Initialize LLM
         self.llm = ChatOpenAI(
@@ -154,22 +175,45 @@ POSTGRESQL SYNTAX RULES:
    - ✗ WHERE month = MONTH(CURRENT_DATE - INTERVAL 1 MONTH)  -- Wrong dialect
 
 CRITICAL RULES:
-1. ALWAYS filter by user_id='{user_id}' in WHERE clause for all sales tables
-2. QUERY THE PRIMARY SALES TABLE FIRST (check schema above for correct table name)
+1. SECURITY FILTERING (ALWAYS apply one of these):
+   - If querying B2C tenant (ecommerce_orders): WHERE user_id = '{user_id}'
+   - If querying B2B tenant (sales_unified): WHERE tenant_id = '{self.tenant_subdomain}'
+   Choose based on which table you're querying
+
+2. QUERY THE PRIMARY SALES TABLE FIRST
+   - B2C tenants: ecommerce_orders
+   - B2B tenants: sales_unified
+   Check schema above for actual table name
+
 3. Use ONLY SELECT queries - NO INSERT, UPDATE, DELETE, DROP, ALTER, CREATE
+
 4. Use ONLY PostgreSQL syntax for all date/time operations
-5. For time queries: Use appropriate date/month/year columns from schema
-6. Aggregate for totals, averages, summaries
-7. Use LIMIT (max 1000 rows)
-8. Handle NULL values with COALESCE
+
+5. PRODUCT NAMES - Use functional_name column directly (NO JOIN to products needed)
+
+6. GEOGRAPHY - Use country, city, region columns directly (NO JOIN to stores needed)
+
+7. RESELLER/STORE NAMES - Only JOIN when showing human-readable names:
+   - For reseller names: JOIN resellers r ON main.reseller_id = r.reseller_id
+   - For store names: JOIN stores s ON main.store_id = s.store_id
+   - Use when query mentions: "Liberty's sales", "which reseller", "flagship store"
+
+8. Handle missing columns gracefully - if a column doesn't exist, adapt query without it
+
+9. Aggregate for totals, averages, summaries (SUM, COUNT, AVG)
+
+10. Use LIMIT (max 1000 rows) for result size control
+
+11. Handle NULL values with COALESCE when needed
 
 Query Best Practices:
-- For general sales questions: Use the primary sales table from schema
-- Product names and details: Use columns available in primary table (check schema)
-- Meaningful column aliases
-- Logical ORDER BY (DESC for top results)
-- GROUP BY appropriate dimensions
-- Clear monetary formatting (sales_eur, cost_eur, etc.)
+- Start with primary sales table (ecommerce_orders OR sales_unified)
+- Use denormalized columns first (functional_name, country, city)
+- Only JOIN lookup tables when displaying human-readable names
+- Meaningful column aliases for clarity
+- Logical ORDER BY (DESC for "top" results, ASC for "lowest")
+- GROUP BY appropriate dimensions (product, country, month, etc.)
+- Format monetary values clearly (sales_eur, cost_of_goods, etc.)
 
 Return ONLY the SQL query, nothing else."""
 
