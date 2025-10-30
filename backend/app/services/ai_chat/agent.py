@@ -136,6 +136,25 @@ class SQLDatabaseAgent:
         # Use universal schema for all tenants
         self.database_schema = DATABASE_SCHEMA_UNIVERSAL
 
+        # Set tenant-specific table and filter configuration
+        if self.tenant_subdomain == "bibbi":
+            self.primary_table = "sales_unified"
+            self.filter_column = "tenant_id"
+            self.filter_value = "bibbi"
+            self.available_columns = """id, tenant_id, reseller_id, store_id, customer_id, upload_id,
+                                         product_ean, functional_name, sale_date, quantity,
+                                         sales_eur, sales_local_currency, currency, year, month, quarter,
+                                         country, city, region, sales_channel, transaction_type,
+                                         store_identifier, created_at, updated_at"""
+        else:  # demo or other B2C tenants
+            self.primary_table = "ecommerce_orders"
+            self.filter_column = "user_id"
+            self.filter_value = "{user_id}"  # Will be replaced in _generate_sql
+            self.available_columns = """order_id, user_id, product_ean, functional_name, product_name,
+                                         sales_eur, quantity, cost_of_goods, stripe_fee, order_date,
+                                         country, city, year, month, utm_source, utm_medium,
+                                         utm_campaign, device_type, reseller, created_at"""
+
         # Initialize LLM
         self.llm = ChatOpenAI(
             api_key=self.api_key,
@@ -150,8 +169,50 @@ class SQLDatabaseAgent:
     def _generate_sql(self, query: str, user_id: str) -> str:
         """Generate SQL from natural language using OpenAI"""
 
+        # Replace user_id placeholder if needed
+        filter_value = self.filter_value.replace("{user_id}", user_id)
+
         # Use tenant-specific database schema
         system_prompt = f"""You are a SQL expert for a sales analytics platform.
+
+CURRENT TENANT CONFIGURATION:
+Tenant: {self.tenant_subdomain}
+Primary Table: {self.primary_table}
+Filter: {self.filter_column} = '{filter_value}'
+Available Columns: {self.available_columns}
+
+CONCRETE SQL EXAMPLES FOR YOUR TENANT ({self.tenant_subdomain}):
+
+Example 1 - Top 5 products last month:
+SELECT
+    functional_name AS product_name,
+    SUM(sales_eur) AS total_revenue,
+    SUM(quantity) AS total_units_sold
+FROM {self.primary_table}
+WHERE {self.filter_column} = '{filter_value}'
+  AND month = EXTRACT(MONTH FROM CURRENT_DATE - INTERVAL '1 month')
+  AND year = EXTRACT(YEAR FROM CURRENT_DATE - INTERVAL '1 month')
+GROUP BY functional_name
+ORDER BY total_revenue DESC
+LIMIT 5
+
+Example 2 - Total sales this year:
+SELECT
+    SUM(sales_eur) AS total_revenue,
+    COUNT(*) AS transaction_count
+FROM {self.primary_table}
+WHERE {self.filter_column} = '{filter_value}'
+  AND year = EXTRACT(YEAR FROM CURRENT_DATE)
+
+Example 3 - Sales by country:
+SELECT
+    country,
+    SUM(sales_eur) AS revenue,
+    SUM(quantity) AS units_sold
+FROM {self.primary_table}
+WHERE {self.filter_column} = '{filter_value}'
+GROUP BY country
+ORDER BY revenue DESC
 
 {self.database_schema}
 
@@ -174,37 +235,43 @@ POSTGRESQL SYNTAX RULES:
         AND year = EXTRACT(YEAR FROM CURRENT_DATE - INTERVAL '1 month')
    - ✗ WHERE month = MONTH(CURRENT_DATE - INTERVAL 1 MONTH)  -- Wrong dialect
 
-CRITICAL RULES:
-1. SECURITY FILTERING (ALWAYS apply one of these):
-   - If querying B2C tenant (ecommerce_orders): WHERE user_id = '{user_id}'
-   - If querying B2B tenant (sales_unified): WHERE tenant_id = '{self.tenant_subdomain}'
-   Choose based on which table you're querying
+CRITICAL RULES - FOLLOW EXACTLY:
 
-2. QUERY THE PRIMARY SALES TABLE FIRST
-   - B2C tenants: ecommerce_orders
-   - B2B tenants: sales_unified
-   Check schema above for actual table name
+1. ALWAYS USE THIS TABLE: {self.primary_table}
+   - This is the ONLY table you should query for sales data
+   - Do NOT use any other table name
 
-3. Use ONLY SELECT queries - NO INSERT, UPDATE, DELETE, DROP, ALTER, CREATE
+2. ALWAYS USE THIS FILTER: WHERE {self.filter_column} = '{filter_value}'
+   - This MUST appear in EVERY query WHERE clause
+   - This is mandatory for security and data isolation
 
-4. Use ONLY PostgreSQL syntax for all date/time operations
+3. FOLLOW THE EXAMPLES ABOVE
+   - The 3 examples show the correct table name and filter
+   - Pattern-match your queries to those examples
+   - Use the same FROM clause: FROM {self.primary_table}
+   - Use the same WHERE clause: WHERE {self.filter_column} = '{filter_value}'
 
-5. PRODUCT NAMES - Use functional_name column directly (NO JOIN to products needed)
+4. AVAILABLE COLUMNS (only use these):
+   {self.available_columns}
 
-6. GEOGRAPHY - Use country, city, region columns directly (NO JOIN to stores needed)
+5. Use ONLY SELECT queries - NO INSERT, UPDATE, DELETE, DROP, ALTER, CREATE
 
-7. RESELLER/STORE NAMES - Only JOIN when showing human-readable names:
-   - For reseller names: JOIN resellers r ON main.reseller_id = r.reseller_id
-   - For store names: JOIN stores s ON main.store_id = s.store_id
-   - Use when query mentions: "Liberty's sales", "which reseller", "flagship store"
+6. Use ONLY PostgreSQL syntax for date/time operations (EXTRACT, INTERVAL)
 
-8. Handle missing columns gracefully - if a column doesn't exist, adapt query without it
+7. PRODUCT NAMES - Use functional_name column (present in your table)
 
-9. Aggregate for totals, averages, summaries (SUM, COUNT, AVG)
+8. GEOGRAPHY - Use country, city columns directly (present in your table)
 
-10. Use LIMIT (max 1000 rows) for result size control
+9. For BIBBI tenant only - RESELLER/STORE NAMES:
+   - JOIN resellers: JOIN resellers r ON {self.primary_table}.reseller_id = r.reseller_id
+   - JOIN stores: JOIN stores s ON {self.primary_table}.store_id = s.store_id
+   - Only use when query asks for reseller/store names
 
-11. Handle NULL values with COALESCE when needed
+10. Aggregate with SUM, COUNT, AVG for totals and summaries
+
+11. Use LIMIT (max 1000 rows) to control result size
+
+12. Handle NULL values with COALESCE when needed
 
 Query Best Practices:
 - Start with primary sales table (ecommerce_orders OR sales_unified)
