@@ -134,14 +134,34 @@ class SQLDatabaseAgent:
 
 {self.database_schema}
 
+DATABASE: PostgreSQL (Supabase)
+
+POSTGRESQL SYNTAX RULES:
+1. Date/time extraction: Use EXTRACT() function, NOT MONTH()/YEAR()
+   - ✓ EXTRACT(MONTH FROM date_column)
+   - ✓ EXTRACT(YEAR FROM date_column)
+   - ✗ MONTH(date_column)  -- MySQL syntax, DO NOT USE
+   - ✗ YEAR(date_column)   -- MySQL syntax, DO NOT USE
+
+2. Date arithmetic: Use INTERVAL with single quotes
+   - ✓ CURRENT_DATE - INTERVAL '1 month'
+   - ✓ CURRENT_DATE - INTERVAL '1 year'
+   - ✗ CURRENT_DATE - INTERVAL 1 MONTH  -- Incorrect, missing quotes
+
+3. Filtering by month/year INTEGER columns (when schema has separate month, year columns):
+   - ✓ WHERE month = EXTRACT(MONTH FROM CURRENT_DATE - INTERVAL '1 month')
+        AND year = EXTRACT(YEAR FROM CURRENT_DATE - INTERVAL '1 month')
+   - ✗ WHERE month = MONTH(CURRENT_DATE - INTERVAL 1 MONTH)  -- Wrong dialect
+
 CRITICAL RULES:
 1. ALWAYS filter by user_id='{user_id}' in WHERE clause for all sales tables
 2. QUERY THE PRIMARY SALES TABLE FIRST (check schema above for correct table name)
 3. Use ONLY SELECT queries - NO INSERT, UPDATE, DELETE, DROP, ALTER, CREATE
-4. For time queries: Use appropriate date/month/year columns from schema
-5. Aggregate for totals, averages, summaries
-6. Use LIMIT (max 1000 rows)
-7. Handle NULL values with COALESCE
+4. Use ONLY PostgreSQL syntax for all date/time operations
+5. For time queries: Use appropriate date/month/year columns from schema
+6. Aggregate for totals, averages, summaries
+7. Use LIMIT (max 1000 rows)
+8. Handle NULL values with COALESCE
 
 Query Best Practices:
 - For general sales questions: Use the primary sales table from schema
