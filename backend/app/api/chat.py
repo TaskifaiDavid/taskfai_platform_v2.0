@@ -83,7 +83,7 @@ async def query_chat(
 
         # Initialize conversation memory for context
         from app.services.ai_chat.memory import ConversationMemory
-        memory = ConversationMemory(project_id=SUPABASE_PROJECT_ID)
+        memory = ConversationMemory(supabase_client=supabase)
 
         # Detect intent
         intent_detector = IntentDetector()

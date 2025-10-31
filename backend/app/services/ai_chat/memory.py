@@ -4,8 +4,8 @@ Conversation memory service for persistent chat history
 
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
-import asyncpg
 from uuid import UUID, uuid4
+from supabase import Client
 
 
 class ConversationMemory:
@@ -18,14 +18,14 @@ class ConversationMemory:
     - Analytics and debugging
     """
 
-    def __init__(self, db_connection_pool: asyncpg.Pool):
+    def __init__(self, supabase_client: Client):
         """
         Initialize conversation memory
 
         Args:
-            db_connection_pool: AsyncPG connection pool
+            supabase_client: Tenant-routed Supabase client
         """
-        self.pool = db_connection_pool
+        self.supabase = supabase_client
 
     async def save_conversation(
         self,
@@ -54,27 +54,15 @@ class ConversationMemory:
         """
         conversation_id = str(uuid4())
 
-        async with self.pool.acquire() as conn:
-            await conn.execute(
-                """
-                INSERT INTO conversation_history (
-                    conversation_id,
-                    user_id,
-                    session_id,
-                    user_message,
-                    ai_response,
-                    query_intent,
-                    timestamp
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-                """,
-                UUID(conversation_id),
-                UUID(user_id),
-                session_id,
-                user_message,
-                ai_response,
-                query_intent,
-                datetime.utcnow()
-            )
+        self.supabase.table('conversation_history').insert({
+            'conversation_id': conversation_id,
+            'user_id': user_id,
+            'session_id': session_id,
+            'user_message': user_message,
+            'ai_response': ai_response,
+            'query_intent': query_intent,
+            'timestamp': datetime.utcnow().isoformat()
+        }).execute()
 
         return conversation_id
 
@@ -97,47 +85,16 @@ class ConversationMemory:
         Returns:
             List of conversation dictionaries
         """
-        async with self.pool.acquire() as conn:
-            if session_id:
-                rows = await conn.fetch(
-                    """
-                    SELECT
-                        conversation_id,
-                        user_message,
-                        ai_response,
-                        query_intent,
-                        timestamp
-                    FROM conversation_history
-                    WHERE user_id = $1 AND session_id = $2
-                    ORDER BY timestamp DESC
-                    LIMIT $3 OFFSET $4
-                    """,
-                    UUID(user_id),
-                    session_id,
-                    limit,
-                    offset
-                )
-            else:
-                rows = await conn.fetch(
-                    """
-                    SELECT
-                        conversation_id,
-                        session_id,
-                        user_message,
-                        ai_response,
-                        query_intent,
-                        timestamp
-                    FROM conversation_history
-                    WHERE user_id = $1
-                    ORDER BY timestamp DESC
-                    LIMIT $2 OFFSET $3
-                    """,
-                    UUID(user_id),
-                    limit,
-                    offset
-                )
+        query = self.supabase.table('conversation_history').select(
+            'conversation_id, session_id, user_message, ai_response, query_intent, timestamp'
+        ).eq('user_id', user_id)
 
-        return [dict(row) for row in rows]
+        if session_id:
+            query = query.eq('session_id', session_id)
+
+        result = query.order('timestamp', desc=True).limit(limit).offset(offset).execute()
+
+        return result.data if result.data else []
 
     async def get_recent_context(
         self,
@@ -188,28 +145,15 @@ class ConversationMemory:
         Returns:
             Number of conversations deleted
         """
-        async with self.pool.acquire() as conn:
-            if session_id:
-                result = await conn.execute(
-                    """
-                    DELETE FROM conversation_history
-                    WHERE user_id = $1 AND session_id = $2
-                    """,
-                    UUID(user_id),
-                    session_id
-                )
-            else:
-                result = await conn.execute(
-                    """
-                    DELETE FROM conversation_history
-                    WHERE user_id = $1
-                    """,
-                    UUID(user_id)
-                )
+        query = self.supabase.table('conversation_history').delete().eq('user_id', user_id)
 
-        # Extract count from result
-        count = int(result.split()[-1])
-        return count
+        if session_id:
+            query = query.eq('session_id', session_id)
+
+        result = query.execute()
+
+        # Return count of deleted records
+        return len(result.data) if result.data else 0
 
     async def get_session_list(
         self,
@@ -225,28 +169,28 @@ class ConversationMemory:
 
         Returns:
             List of sessions with metadata
+
+        Note: Simplified version - returns basic session list without aggregations
         """
-        cutoff_date = datetime.utcnow() - timedelta(days=days_back)
+        cutoff_date = (datetime.utcnow() - timedelta(days=days_back)).isoformat()
 
-        async with self.pool.acquire() as conn:
-            rows = await conn.fetch(
-                """
-                SELECT
-                    session_id,
-                    COUNT(*) as message_count,
-                    MIN(timestamp) as started_at,
-                    MAX(timestamp) as last_message_at,
-                    array_agg(DISTINCT query_intent) as intents
-                FROM conversation_history
-                WHERE user_id = $1 AND timestamp >= $2
-                GROUP BY session_id
-                ORDER BY last_message_at DESC
-                """,
-                UUID(user_id),
-                cutoff_date
-            )
+        result = self.supabase.table('conversation_history').select(
+            'session_id, timestamp'
+        ).eq('user_id', user_id).gte('timestamp', cutoff_date).order('timestamp', desc=True).execute()
 
-        return [dict(row) for row in rows]
+        # Group by session_id manually
+        sessions = {}
+        for row in (result.data or []):
+            sid = row['session_id']
+            if sid not in sessions:
+                sessions[sid] = {
+                    'session_id': sid,
+                    'message_count': 0,
+                    'last_message_at': row['timestamp']
+                }
+            sessions[sid]['message_count'] += 1
+
+        return list(sessions.values())
 
     async def get_conversation_by_id(
         self,
@@ -263,25 +207,11 @@ class ConversationMemory:
         Returns:
             Conversation dict or None
         """
-        async with self.pool.acquire() as conn:
-            row = await conn.fetchrow(
-                """
-                SELECT
-                    conversation_id,
-                    user_id,
-                    session_id,
-                    user_message,
-                    ai_response,
-                    query_intent,
-                    timestamp
-                FROM conversation_history
-                WHERE conversation_id = $1 AND user_id = $2
-                """,
-                UUID(conversation_id),
-                UUID(user_id)
-            )
+        result = self.supabase.table('conversation_history').select(
+            'conversation_id, user_id, session_id, user_message, ai_response, query_intent, timestamp'
+        ).eq('conversation_id', conversation_id).eq('user_id', user_id).limit(1).execute()
 
-        return dict(row) if row else None
+        return result.data[0] if result.data else None
 
     async def search_conversations(
         self,
@@ -299,37 +229,16 @@ class ConversationMemory:
 
         Returns:
             List of matching conversations
-        """
-        async with self.pool.acquire() as conn:
-            rows = await conn.fetch(
-                """
-                SELECT
-                    conversation_id,
-                    session_id,
-                    user_message,
-                    ai_response,
-                    query_intent,
-                    timestamp,
-                    ts_rank(
-                        to_tsvector('english', user_message || ' ' || ai_response),
-                        plainto_tsquery('english', $2)
-                    ) as relevance
-                FROM conversation_history
-                WHERE user_id = $1
-                AND (
-                    user_message ILIKE $3
-                    OR ai_response ILIKE $3
-                )
-                ORDER BY relevance DESC, timestamp DESC
-                LIMIT $4
-                """,
-                UUID(user_id),
-                search_term,
-                f"%{search_term}%",
-                limit
-            )
 
-        return [dict(row) for row in rows]
+        Note: Simplified version - uses basic ILIKE matching without full-text search ranking
+        """
+        result = self.supabase.table('conversation_history').select(
+            'conversation_id, session_id, user_message, ai_response, query_intent, timestamp'
+        ).eq('user_id', user_id).or_(
+            f"user_message.ilike.%{search_term}%,ai_response.ilike.%{search_term}%"
+        ).order('timestamp', desc=True).limit(limit).execute()
+
+        return result.data if result.data else []
 
     async def get_conversation_stats(
         self,
@@ -345,30 +254,29 @@ class ConversationMemory:
 
         Returns:
             Statistics dictionary
+
+        Note: Simplified version - computes basic stats from retrieved data
         """
-        cutoff_date = datetime.utcnow() - timedelta(days=days_back)
+        cutoff_date = (datetime.utcnow() - timedelta(days=days_back)).isoformat()
 
-        async with self.pool.acquire() as conn:
-            row = await conn.fetchrow(
-                """
-                SELECT
-                    COUNT(*) as total_conversations,
-                    COUNT(DISTINCT session_id) as total_sessions,
-                    COUNT(DISTINCT DATE(timestamp)) as active_days,
-                    array_agg(DISTINCT query_intent) as intent_types
-                FROM conversation_history
-                WHERE user_id = $1 AND timestamp >= $2
-                """,
-                UUID(user_id),
-                cutoff_date
+        result = self.supabase.table('conversation_history').select(
+            'session_id, timestamp'
+        ).eq('user_id', user_id).gte('timestamp', cutoff_date).execute()
+
+        data = result.data if result.data else []
+
+        # Compute stats manually
+        total_conversations = len(data)
+        unique_sessions = len(set(row['session_id'] for row in data))
+
+        stats = {
+            "total_conversations": total_conversations,
+            "total_sessions": unique_sessions,
+            "period_days": days_back,
+            "avg_conversations_per_session": (
+                total_conversations / max(unique_sessions, 1) if unique_sessions else 0
             )
-
-        stats = dict(row) if row else {}
-        stats["period_days"] = days_back
-        stats["avg_conversations_per_session"] = (
-            stats["total_conversations"] / max(stats["total_sessions"], 1)
-            if stats.get("total_sessions") else 0
-        )
+        }
 
         return stats
 
