@@ -405,9 +405,12 @@ class LibertyProcessor(BibbiBseProcessor):
             transformed["product_ean"] = product["ean"]
             transformed["functional_name"] = product["functional_name"]
         else:
-            # No match found - add to unmatched list and skip row
+            # No match found - still insert record with Liberty name as temporary identifier
+            # Track as unmatched for reporting but don't discard the sales data
             self.unmatched_liberty_names.append(liberty_name)
-            return None
+            # Use Liberty name as temporary product identifier (database allows this per schema comment)
+            transformed["product_ean"] = liberty_name
+            transformed["functional_name"] = liberty_name
 
         # Store Liberty identifier for reference
         transformed["product_name_raw"] = liberty_name
