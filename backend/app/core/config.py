@@ -58,7 +58,7 @@ class Settings(BaseSettings):
 
     # OpenAI (Optional - AI chat disabled if not configured)
     openai_api_key: str = ""
-    openai_model: str = "gpt-4o-mini"
+    openai_model: str = "gpt-5-mini"
 
     # SendGrid (Optional - email notifications disabled if not configured)
     sendgrid_api_key: str = ""

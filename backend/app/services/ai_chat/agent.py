@@ -114,7 +114,7 @@ class SQLDatabaseAgent:
         self,
         project_id: str,
         openai_api_key: Optional[str] = None,
-        model: str = "gpt-4o-mini",
+        model: str = "gpt-5-mini",
         temperature: float = 0.0,
         tenant_subdomain: str = "demo"
     ):
