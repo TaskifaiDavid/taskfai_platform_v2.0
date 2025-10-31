@@ -173,8 +173,14 @@ class SQLDatabaseAgent:
         self.intent_detector = IntentDetector()
         self.security_validator = QuerySecurityValidator()
 
-    def _generate_sql(self, query: str, user_id: str) -> str:
-        """Generate SQL from natural language using OpenAI"""
+    def _generate_sql(self, query: str, user_id: str, conversation_context: str = "") -> str:
+        """Generate SQL from natural language using OpenAI
+
+        Args:
+            query: User's natural language question
+            user_id: User ID for filtering (if applicable)
+            conversation_context: Recent conversation history for understanding follow-up questions
+        """
 
         # Build filter clause for prompt
         if self.filter_column and self.filter_value:
@@ -189,9 +195,25 @@ class SQLDatabaseAgent:
             filter_info = "Filter: None (single-tenant database)"
             where_example = "WHERE "
 
+        # Add conversation context if available
+        context_section = ""
+        if conversation_context:
+            context_section = f"""
+RECENT CONVERSATION CONTEXT:
+{conversation_context}
+
+Use this context to understand follow-up questions. For example:
+- If user previously asked about "BBGOT100" and now asks "what about revenue?",
+  they're asking about BBGOT100's revenue.
+- If user asked "top products" and says "show me the second one",
+  refer to the second product from previous results.
+- If user says "compare it to...", "it" refers to the subject of previous query.
+
+"""
+
         # Use tenant-specific database schema
         system_prompt = f"""You are a SQL expert for a sales analytics platform.
-
+{context_section}
 CURRENT TENANT CONFIGURATION:
 Tenant: {self.tenant_subdomain}
 Primary Table: {self.primary_table}
@@ -277,20 +299,85 @@ CRITICAL RULES - FOLLOW EXACTLY:
 
 8. GEOGRAPHY - Use country, city columns directly (present in your table)
 
-9. For BIBBI tenant only - RESELLER/STORE NAMES:
-   - JOIN resellers: JOIN resellers r ON {self.primary_table}.reseller_id = r.reseller_id
-   - JOIN stores: JOIN stores s ON {self.primary_table}.store_id = s.store_id
-   - Only use when query asks for reseller/store names
+9. PRODUCT IDENTIFICATION STRATEGY - CRITICAL:
 
-10. Aggregate with SUM, COUNT, AVG for totals and summaries
+   A) Determine Product Type from User Input:
+      - 13-digit number (e.g., "7350154320022") → This is product_ean (EAN barcode)
+      - Product code/SKU (e.g., "BBGOT100", "GOT100", "BBSP30") → This is functional_name
 
-11. Use LIMIT (max 1000 rows) to control result size
+   B) Query Strategy by Type:
+      - For EAN Barcodes (13 digits): WHERE product_ean = '7350154320022'
+      - For Product Names/SKUs: WHERE functional_name ILIKE '%PRODUCTCODE%'
+        * Use ILIKE for case-insensitive matching
+        * Use % wildcards for partial matching
+        * Example: "GOT100" → WHERE functional_name ILIKE '%GOT100%' (matches BBGOT100, BBGOT30, etc.)
 
-12. Handle NULL values with COALESCE when needed
+   C) Examples:
+      User asks: "How much did BBGOT100 sell for?"
+      SELECT functional_name, SUM(sales_eur) AS revenue, SUM(quantity) AS units
+      FROM {self.primary_table}
+      WHERE functional_name ILIKE '%BBGOT100%'
+      GROUP BY functional_name
+
+      User asks: "Show me GOT100 sales"
+      SELECT functional_name, SUM(sales_eur) AS revenue
+      FROM {self.primary_table}
+      WHERE functional_name ILIKE '%GOT100%'
+      GROUP BY functional_name
+
+      User asks: "Sales for EAN 7350154320022"
+      SELECT product_ean, functional_name, SUM(sales_eur)
+      FROM {self.primary_table}
+      WHERE product_ean = '7350154320022'
+      GROUP BY product_ean, functional_name
+
+10. RESELLER QUERY STRATEGY - Use JOINs when user mentions reseller names:
+
+   When user asks about specific reseller (Liberty, Galilu, Boxnox, etc.),
+   you MUST JOIN the resellers table to filter by reseller name.
+
+   A) Reseller Total Sales:
+      User asks: "How much did Liberty sell for?"
+      SELECT r.name AS reseller_name, SUM(s.sales_eur) AS total_revenue, SUM(s.quantity) AS units
+      FROM {self.primary_table} s
+      JOIN resellers r ON s.reseller_id = r.reseller_id
+      WHERE r.name ILIKE '%Liberty%'
+      GROUP BY r.name
+
+   B) Reseller Sales by Product:
+      User asks: "What did Liberty sell of BBGOT100?"
+      SELECT r.name AS reseller, s.functional_name AS product, SUM(s.sales_eur) AS revenue
+      FROM {self.primary_table} s
+      JOIN resellers r ON s.reseller_id = r.reseller_id
+      WHERE r.name ILIKE '%Liberty%' AND s.functional_name ILIKE '%BBGOT100%'
+      GROUP BY r.name, s.functional_name
+
+   C) Compare Resellers:
+      User asks: "Compare Liberty and Galilu sales"
+      SELECT r.name AS reseller, SUM(s.sales_eur) AS revenue
+      FROM {self.primary_table} s
+      JOIN resellers r ON s.reseller_id = r.reseller_id
+      WHERE r.name ILIKE '%Liberty%' OR r.name ILIKE '%Galilu%'
+      GROUP BY r.name
+      ORDER BY revenue DESC
+
+   CRITICAL: The resellers table has column "name", not "reseller_name"
+
+11. STORE QUERIES (if needed):
+    JOIN stores: JOIN stores s ON {self.primary_table}.store_id = s.store_id
+    Use when query asks for store names or locations
+
+12. Aggregate with SUM, COUNT, AVG for totals and summaries
+
+13. Use LIMIT (max 1000 rows) to control result size
+
+14. Handle NULL values with COALESCE when needed
 
 Query Best Practices:
 - Start with primary sales table (ecommerce_orders OR sales_unified)
 - Use denormalized columns first (functional_name, country, city)
+- For product names/SKUs: ALWAYS use ILIKE with wildcards for matching
+- For reseller names: ALWAYS JOIN resellers table and use ILIKE
 - Only JOIN lookup tables when displaying human-readable names
 - Meaningful column aliases for clarity
 - Logical ORDER BY (DESC for "top" results, ASC for "lowest")
@@ -321,7 +408,8 @@ Return ONLY the SQL query, nothing else."""
         user_id: str,
         mcp_execute_sql_fn: Any,
         session_id: Optional[str] = None,
-        intent: Optional[QueryIntent] = None
+        intent: Optional[QueryIntent] = None,
+        conversation_memory: Optional[Any] = None
     ) -> Dict[str, Any]:
         """
         Process natural language query using hybrid approach
@@ -332,11 +420,25 @@ Return ONLY the SQL query, nothing else."""
             mcp_execute_sql_fn: Supabase MCP execute_sql function
             session_id: Session ID for conversation continuity
             intent: Optional pre-detected intent
+            conversation_memory: Optional ConversationMemory instance for context
 
         Returns:
             Dictionary with response, sql, data, session_id
         """
         try:
+            # Get recent conversation context if available
+            conversation_context = ""
+            if conversation_memory and session_id:
+                try:
+                    conversation_context = await conversation_memory.get_recent_context(
+                        user_id=user_id,
+                        session_id=session_id,
+                        limit=3  # Last 3 exchanges for context
+                    )
+                except Exception as e:
+                    # Log warning but continue without context
+                    pass
+
             # Detect intent if not provided
             if intent is None:
                 intent = self.intent_detector.detect_intent(query)
@@ -352,8 +454,8 @@ Return ONLY the SQL query, nothing else."""
                 )
 
             # Standard SQL query flow for other intents
-            # Generate SQL using OpenAI
-            sql_query = self._generate_sql(query, user_id)
+            # Generate SQL using OpenAI with conversation context
+            sql_query = self._generate_sql(query, user_id, conversation_context)
 
             # Validate SQL security
             try:

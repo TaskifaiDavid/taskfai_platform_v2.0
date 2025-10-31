@@ -81,6 +81,10 @@ async def query_chat(
             tenant_subdomain=tenant_context.subdomain
         )
 
+        # Initialize conversation memory for context
+        from app.services.ai_chat.memory import ConversationMemory
+        memory = ConversationMemory(project_id=SUPABASE_PROJECT_ID)
+
         # Detect intent
         intent_detector = IntentDetector()
         intent = intent_detector.detect_intent(request.query)
@@ -89,13 +93,14 @@ async def query_chat(
         async def execute_sql_with_client(project_id: str, query: str) -> list:
             return await execute_sql_via_mcp(project_id, query, supabase)
 
-        # Process query with agent (uses tenant-routed Supabase client)
+        # Process query with agent (uses tenant-routed Supabase client + conversation context)
         result = await agent.process_query(
             query=request.query,
             user_id=str(current_user["user_id"]),
             mcp_execute_sql_fn=execute_sql_with_client,
             session_id=request.session_id,
-            intent=intent
+            intent=intent,
+            conversation_memory=memory
         )
 
         # Return response matching frontend expectations
