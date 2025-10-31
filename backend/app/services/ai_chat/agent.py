@@ -44,9 +44,10 @@ Common transaction columns (most will exist):
 - Geography: country, city, region (TEXT, denormalized in fact table)
 - Time dimensions: year, month, quarter (INTEGER, extracted from date)
 
-Security filtering columns (one of these WILL exist):
+Security filtering columns:
 - user_id: Filter by this in WHERE clause (B2C/multi-user tenants)
-- tenant_id: Filter by subdomain value (B2B/multi-tenant systems)
+- tenant_id: Filter by subdomain value (multi-tenant systems)
+- Some tenants have single-tenant databases with NO filtering required
 
 Optional B2B-specific columns (check if present before using):
 - reseller_id: UUID pointing to resellers lookup table
@@ -92,7 +93,8 @@ CRITICAL QUERY STRATEGY:
    - Query specifically mentions reseller/store names OR
    - Need to display human-readable names instead of UUIDs
 4. Handle missing columns gracefully - if column doesn't exist, adapt without it
-5. Always filter by user_id OR tenant_id for security isolation
+5. Security filtering: Apply user_id/tenant_id filter ONLY if specified in tenant config
+   - Single-tenant databases do not require filtering
 """
 
 
@@ -139,13 +141,18 @@ class SQLDatabaseAgent:
         # Set tenant-specific table and filter configuration
         if self.tenant_subdomain == "bibbi":
             self.primary_table = "sales_unified"
-            self.filter_column = "tenant_id"
-            self.filter_value = "bibbi"
-            self.available_columns = """id, tenant_id, reseller_id, store_id, customer_id, upload_id,
-                                         product_ean, functional_name, sale_date, quantity,
-                                         sales_eur, sales_local_currency, currency, year, month, quarter,
-                                         country, city, region, sales_channel, transaction_type,
-                                         store_identifier, created_at, updated_at"""
+            self.filter_column = None  # BIBBI has single-tenant database, no filtering needed
+            self.filter_value = None
+            self.available_columns = """id, product_ean, functional_name, reseller_id, store_id, customer_id,
+                                         sale_date, year, month, quarter, week_of_year, quantity,
+                                         sales_local_currency, currency, sales_eur, exchange_rate,
+                                         cost_of_goods, commission_amount, vat_rate, vat_amount,
+                                         shipping_cost, payment_processing_fee, gross_revenue, net_revenue,
+                                         gross_margin, order_id, sales_channel, is_gift, is_refund, refund_reason,
+                                         country, region, city, customer_ip, device_type,
+                                         utm_source, utm_medium, utm_campaign, utm_content, utm_term,
+                                         session_pages, session_count, referrer_url, upload_id,
+                                         created_at, updated_at"""
         else:  # demo or other B2C tenants
             self.primary_table = "ecommerce_orders"
             self.filter_column = "user_id"
@@ -169,8 +176,18 @@ class SQLDatabaseAgent:
     def _generate_sql(self, query: str, user_id: str) -> str:
         """Generate SQL from natural language using OpenAI"""
 
-        # Replace user_id placeholder if needed
-        filter_value = self.filter_value.replace("{user_id}", user_id)
+        # Build filter clause for prompt
+        if self.filter_column and self.filter_value:
+            # Replace user_id placeholder if needed
+            filter_value = self.filter_value.replace("{user_id}", user_id)
+            filter_clause = f"WHERE {self.filter_column} = '{filter_value}'"
+            filter_info = f"Filter: {self.filter_column} = '{filter_value}'"
+            where_example = f"WHERE {self.filter_column} = '{filter_value}'\n  AND "
+        else:
+            # BIBBI case: no tenant filtering needed (single-tenant database)
+            filter_clause = ""
+            filter_info = "Filter: None (single-tenant database)"
+            where_example = "WHERE "
 
         # Use tenant-specific database schema
         system_prompt = f"""You are a SQL expert for a sales analytics platform.
@@ -178,7 +195,7 @@ class SQLDatabaseAgent:
 CURRENT TENANT CONFIGURATION:
 Tenant: {self.tenant_subdomain}
 Primary Table: {self.primary_table}
-Filter: {self.filter_column} = '{filter_value}'
+{filter_info}
 Available Columns: {self.available_columns}
 
 CONCRETE SQL EXAMPLES FOR YOUR TENANT ({self.tenant_subdomain}):
@@ -189,8 +206,7 @@ SELECT
     SUM(sales_eur) AS total_revenue,
     SUM(quantity) AS total_units_sold
 FROM {self.primary_table}
-WHERE {self.filter_column} = '{filter_value}'
-  AND month = EXTRACT(MONTH FROM CURRENT_DATE - INTERVAL '1 month')
+{where_example}month = EXTRACT(MONTH FROM CURRENT_DATE - INTERVAL '1 month')
   AND year = EXTRACT(YEAR FROM CURRENT_DATE - INTERVAL '1 month')
 GROUP BY functional_name
 ORDER BY total_revenue DESC
@@ -201,8 +217,7 @@ SELECT
     SUM(sales_eur) AS total_revenue,
     COUNT(*) AS transaction_count
 FROM {self.primary_table}
-WHERE {self.filter_column} = '{filter_value}'
-  AND year = EXTRACT(YEAR FROM CURRENT_DATE)
+{where_example}year = EXTRACT(YEAR FROM CURRENT_DATE)
 
 Example 3 - Sales by country:
 SELECT
@@ -210,7 +225,7 @@ SELECT
     SUM(sales_eur) AS revenue,
     SUM(quantity) AS units_sold
 FROM {self.primary_table}
-WHERE {self.filter_column} = '{filter_value}'
+{filter_clause if filter_clause else ""}
 GROUP BY country
 ORDER BY revenue DESC
 
@@ -241,15 +256,15 @@ CRITICAL RULES - FOLLOW EXACTLY:
    - This is the ONLY table you should query for sales data
    - Do NOT use any other table name
 
-2. ALWAYS USE THIS FILTER: WHERE {self.filter_column} = '{filter_value}'
-   - This MUST appear in EVERY query WHERE clause
-   - This is mandatory for security and data isolation
+2. DATA FILTERING:
+   {f"- MUST INCLUDE: WHERE {self.filter_column} = '{filter_value}' in EVERY query" if self.filter_column else "- NO filtering required (single-tenant database)"}
+   {f"- This is mandatory for security and data isolation" if self.filter_column else "- All data in this database belongs to the current tenant"}
 
 3. FOLLOW THE EXAMPLES ABOVE
-   - The 3 examples show the correct table name and filter
+   - The 3 examples show the correct table name and filtering pattern
    - Pattern-match your queries to those examples
    - Use the same FROM clause: FROM {self.primary_table}
-   - Use the same WHERE clause: WHERE {self.filter_column} = '{filter_value}'
+   {f"- Use the same WHERE clause: WHERE {self.filter_column} = '{filter_value}'" if self.filter_column else ""}
 
 4. AVAILABLE COLUMNS (only use these):
    {self.available_columns}
