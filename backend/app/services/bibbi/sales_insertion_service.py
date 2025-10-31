@@ -75,6 +75,8 @@ class BibbιSalesInsertionService:
         self.db = bibbi_db
         # Cache for store details to avoid repeated queries
         self._store_cache: Dict[str, Dict[str, Any]] = {}
+        # Cache for reseller names to avoid repeated queries
+        self._reseller_cache: Dict[str, str] = {}
 
     def insert_validated_sales(
         self,
@@ -216,6 +218,12 @@ class BibbιSalesInsertionService:
                     # No mapping available and no store_id - this will fail FK constraint
                     print(f"[BibbιSalesInsertion] Warning: No store_id mapping for store_identifier='{store_identifier}'")
 
+                # Populate reseller_name from reseller_id (denormalization for AI queries)
+                if "reseller_id" in cleaned_row and not cleaned_row.get("reseller_name"):
+                    reseller_name = self._get_reseller_name(cleaned_row["reseller_id"])
+                    if reseller_name:
+                        cleaned_row["reseller_name"] = reseller_name
+
                 # Ensure timestamps
                 if "created_at" not in cleaned_row:
                     cleaned_row["created_at"] = datetime.utcnow().isoformat()
@@ -312,6 +320,12 @@ class BibbιSalesInsertionService:
                 if store_identifier and store_identifier in store_mapping:
                     cleaned_row["store_id"] = store_mapping[store_identifier]
 
+                # Populate reseller_name from reseller_id (denormalization for AI queries)
+                if "reseller_id" in cleaned_row and not cleaned_row.get("reseller_name"):
+                    reseller_name = self._get_reseller_name(cleaned_row["reseller_id"])
+                    if reseller_name:
+                        cleaned_row["reseller_name"] = reseller_name
+
                 # Ensure timestamps
                 if "created_at" not in cleaned_row:
                     cleaned_row["created_at"] = datetime.utcnow().isoformat()
@@ -383,6 +397,41 @@ class BibbιSalesInsertionService:
 
         except Exception as e:
             print(f"[BibbιSalesInsertion] Error fetching store details: {e}")
+            return None
+
+    def _get_reseller_name(self, reseller_id: str) -> Optional[str]:
+        """
+        Fetch reseller name for denormalization (with caching)
+
+        Args:
+            reseller_id: Reseller UUID
+
+        Returns:
+            Reseller name string or None
+        """
+        # Check cache first
+        if reseller_id in self._reseller_cache:
+            return self._reseller_cache[reseller_id]
+
+        try:
+            # Query resellers table directly (no tenant filtering needed in BIBBI)
+            # NOTE: BIBBI resellers table uses 'id' (not 'reseller_id') and 'reseller' (not 'name')
+            result = self.db.table("resellers")\
+                .select("reseller")\
+                .eq("id", reseller_id)\
+                .execute()
+
+            if result.data and len(result.data) > 0:
+                reseller_name = result.data[0].get("reseller")
+                # Cache for subsequent calls
+                self._reseller_cache[reseller_id] = reseller_name
+                return reseller_name
+            else:
+                print(f"[BibbιSalesInsertion] Reseller {reseller_id} not found in resellers table")
+                return None
+
+        except Exception as e:
+            print(f"[BibbιSalesInsertion] Error fetching reseller name: {e}")
             return None
 
     def update_upload_status(

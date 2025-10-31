@@ -50,6 +50,7 @@ Security filtering columns:
 - Some tenants have single-tenant databases with NO filtering required
 
 Optional B2B-specific columns (check if present before using):
+- reseller_name: TEXT (human-readable reseller name - ALWAYS use this for reseller queries)
 - reseller_id: UUID pointing to resellers lookup table
 - store_id: UUID pointing to stores lookup table
 - sales_channel: TEXT ('online', 'retail', 'B2B', 'B2C')
@@ -86,12 +87,13 @@ LOOKUP TABLES (only query if needed for human-readable names):
 
 CRITICAL QUERY STRATEGY:
 1. Start with PRIMARY sales table (ecommerce_orders OR sales_unified)
-2. Use denormalized columns when available (functional_name, country, city)
+2. Use denormalized columns when available (functional_name, country, city, reseller_name)
    - Product names: Use functional_name directly - NO JOIN needed
    - Geography: Use country, city directly - NO JOIN needed
+   - Reseller names: Use reseller_name directly - NO JOIN needed
 3. Only JOIN lookup tables when:
-   - Query specifically mentions reseller/store names OR
-   - Need to display human-readable names instead of UUIDs
+   - Query specifically mentions store names (stores table) OR
+   - Need to display information NOT available in denormalized columns
 4. Handle missing columns gracefully - if column doesn't exist, adapt without it
 5. Security filtering: Apply user_id/tenant_id filter ONLY if specified in tenant config
    - Single-tenant databases do not require filtering
@@ -143,7 +145,7 @@ class SQLDatabaseAgent:
             self.primary_table = "sales_unified"
             self.filter_column = None  # BIBBI has single-tenant database, no filtering needed
             self.filter_value = None
-            self.available_columns = """id, product_ean, functional_name, reseller_id, store_id, customer_id,
+            self.available_columns = """id, product_ean, functional_name, reseller_name, reseller_id, store_id, customer_id,
                                          sale_date, year, month, quarter, week_of_year, quantity,
                                          sales_local_currency, currency, sales_eur, exchange_rate,
                                          cost_of_goods, commission_amount, vat_rate, vat_amount,
@@ -331,37 +333,45 @@ CRITICAL RULES - FOLLOW EXACTLY:
       WHERE product_ean = '7350154320022'
       GROUP BY product_ean, functional_name
 
-10. RESELLER QUERY STRATEGY - Use JOINs when user mentions reseller names:
+10. RESELLER QUERY STRATEGY - Use reseller_name column directly (NO JOIN needed):
 
    When user asks about specific reseller (Liberty, Galilu, Boxnox, etc.),
-   you MUST JOIN the resellers table to filter by reseller name.
+   use the reseller_name column directly for filtering - NO JOIN required.
 
    A) Reseller Total Sales:
       User asks: "How much did Liberty sell for?"
-      SELECT r.name AS reseller_name, SUM(s.sales_eur) AS total_revenue, SUM(s.quantity) AS units
-      FROM {self.primary_table} s
-      JOIN resellers r ON s.reseller_id = r.reseller_id
-      WHERE r.name ILIKE '%Liberty%'
-      GROUP BY r.name
+      SELECT reseller_name, SUM(sales_eur) AS total_revenue, SUM(quantity) AS units
+      FROM {self.primary_table}
+      WHERE reseller_name ILIKE '%Liberty%'
+      GROUP BY reseller_name
 
    B) Reseller Sales by Product:
       User asks: "What did Liberty sell of BBGOT100?"
-      SELECT r.name AS reseller, s.functional_name AS product, SUM(s.sales_eur) AS revenue
-      FROM {self.primary_table} s
-      JOIN resellers r ON s.reseller_id = r.reseller_id
-      WHERE r.name ILIKE '%Liberty%' AND s.functional_name ILIKE '%BBGOT100%'
-      GROUP BY r.name, s.functional_name
+      SELECT reseller_name, functional_name AS product, SUM(sales_eur) AS revenue
+      FROM {self.primary_table}
+      WHERE reseller_name ILIKE '%Liberty%' AND functional_name ILIKE '%BBGOT100%'
+      GROUP BY reseller_name, functional_name
 
    C) Compare Resellers:
       User asks: "Compare Liberty and Galilu sales"
-      SELECT r.name AS reseller, SUM(s.sales_eur) AS revenue
-      FROM {self.primary_table} s
-      JOIN resellers r ON s.reseller_id = r.reseller_id
-      WHERE r.name ILIKE '%Liberty%' OR r.name ILIKE '%Galilu%'
-      GROUP BY r.name
+      SELECT reseller_name, SUM(sales_eur) AS revenue
+      FROM {self.primary_table}
+      WHERE reseller_name ILIKE '%Liberty%' OR reseller_name ILIKE '%Galilu%'
+      GROUP BY reseller_name
       ORDER BY revenue DESC
 
-   CRITICAL: The resellers table has column "name", not "reseller_name"
+   D) Geographic Diversity (works for all global resellers):
+      User asks: "Show me Aromateque sales" (Ukraine reseller)
+      SELECT reseller_name, SUM(sales_eur) AS revenue, SUM(quantity) AS units
+      FROM {self.primary_table}
+      WHERE reseller_name ILIKE '%Aromateque%'
+      GROUP BY reseller_name
+
+   Pattern works for ALL resellers: Liberty (UK), Galilu (Poland), Aromateque (Ukraine),
+   Selfridges (UK), Boxnox (Spain), Skins SA (South Africa), Skins NL (Netherlands),
+   CDLC (Balticum), and any future resellers added to the system.
+
+   CRITICAL: Use reseller_name column (TEXT) for all reseller queries - it's denormalized for performance
 
 11. STORE QUERIES (if needed):
     JOIN stores: JOIN stores s ON {self.primary_table}.store_id = s.store_id
@@ -375,10 +385,10 @@ CRITICAL RULES - FOLLOW EXACTLY:
 
 Query Best Practices:
 - Start with primary sales table (ecommerce_orders OR sales_unified)
-- Use denormalized columns first (functional_name, country, city)
+- Use denormalized columns first (functional_name, country, city, reseller_name)
 - For product names/SKUs: ALWAYS use ILIKE with wildcards for matching
-- For reseller names: ALWAYS JOIN resellers table and use ILIKE
-- Only JOIN lookup tables when displaying human-readable names
+- For reseller names: Use reseller_name column directly with ILIKE (NO JOIN needed)
+- Only JOIN lookup tables when displaying human-readable names NOT in denormalized columns
 - Meaningful column aliases for clarity
 - Logical ORDER BY (DESC for "top" results, ASC for "lowest")
 - GROUP BY appropriate dimensions (product, country, month, etc.)
